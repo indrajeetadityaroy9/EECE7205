@@ -44,10 +44,10 @@ void partition(vector<int> &arr, int low, int high, int &l_pivot, int &g_pivot) 
 
 void quick_sort(vector<int> &arr, int low, int high) {
     if (low < high) {
-        int l_pivot, g_pivot;
-        partition(arr, low, high, l_pivot, g_pivot);
-        quick_sort(arr, low, l_pivot - 1);
-        quick_sort(arr, g_pivot + 1, high);
+        int l_p, g_p;
+        partition(arr, low, high, l_p, g_p);
+        quick_sort(arr, low, l_p - 1);
+        quick_sort(arr, g_p + 1, high);
     }
 }
 

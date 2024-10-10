@@ -10,21 +10,24 @@ void counting_sort(vector<int>& arr) {
 
     const auto [min, max] = minmax_element(arr.begin(), arr.end());
     const int range = *max - *min + 1;
+    int n = arr.size();
 
-    vector<int> count(range, 0);
+    vector<int> B(n);
+    vector<int> C(range, 0);
+    
     for (const auto& num : arr) {
-        count[num - *min]++;
-    }
-    for (size_t i = 1; i < count.size(); ++i) {
-        count[i] += count[i - 1];
+        C[num - *min]++;
     }
 
-    vector<int> output(arr.size());
+    for (size_t i = 1; i < C.size(); ++i) {
+        C[i] += C[i - 1];
+    }
+
     for (auto it = arr.rbegin(); it != arr.rend(); ++it) {
-        output[--count[*it - *min]] = *it;
+        B[--C[*it - *min]] = *it;
     }
 
-    arr = move(output);
+    arr = move(B);
 }
 
 int main() {

@@ -22,29 +22,29 @@ void swap(int &a, int &b) {
     b = temp;
 }
 
-int partition(vector<int> &A, int low, int high) {
-    int random_index = low + rand() % (high - low + 1);
-    swap(A[random_index], A[high]);
+int partition(vector<int> &arr, int low, int high) {
+    int rand_idx = low + rand() % (high - low + 1);
+    swap(arr[rand_idx], arr[high]);
     
-    int pivot = A[high];
+    int pivot = arr[high];
     int i = low - 1;
 
     for (int j = low; j < high; j++) {
-        if (A[j] <= pivot) {
+        if (arr[j] <= pivot) {
             i++;
-            swap(A[i], A[j]);
+            swap(arr[i], arr[j]);
         }
     }
     
-    swap(A[i + 1], A[high]);
+    swap(arr[i + 1], arr[high]);
     return i + 1;
 }
 
-void randomized_quick_sort(vector<int> &A, int low, int high) {
+void randomized_quick_sort(vector<int> &arr, int low, int high) {
     if (low < high) {
-        int pi = partition(A, low, high);
-        randomized_quick_sort(A, low, pi - 1);
-        randomized_quick_sort(A, pi + 1, high);
+        int p = partition(arr, low, high);
+        randomized_quick_sort(arr, low, p - 1);
+        randomized_quick_sort(arr, p + 1, high);
     }
 }
 
@@ -55,15 +55,15 @@ auto quicksort_wrapper = [](vector<int>& arr) {
 int main() {
     srand(time(0));
 
-    vector<int> A(100);
+    vector<int> arr(100);
     for (int i = 0; i < 100; i++) {
-        A[i] = i + 1;
+        arr[i] = i + 1;
     }
     vector<double> run_times;
     double total_time = 0.0;
     
     for (int run = 1; run <= 5; run++) {
-        vector<int> input_arr = A;
+        vector<int> input_arr = arr;
         double run_time = measure_time(quicksort_wrapper, input_arr);
         total_time += run_time;
         run_times.push_back(run_time);
