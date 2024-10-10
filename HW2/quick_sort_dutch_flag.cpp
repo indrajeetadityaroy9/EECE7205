@@ -22,25 +22,32 @@ void swap(int &a, int &b) {
     b = temp;
 }
 
-int partition(vector<int> &arr, int low, int high) {
+void partition(vector<int> &arr, int low, int high, int &l_pivot, int &g_pivot) {
     int pivot = arr[high];
-    int i = low - 1;
+    l_pivot = low;
+    g_pivot = high;
+    int i = low;
 
-    for (int j = low; j < high; j++) {
-        if (arr[j] <= pivot) {
+    while (i <= g_pivot) {
+        if (arr[i] < pivot) {
+            swap(arr[l_pivot], arr[i]);
+            l_pivot++;
             i++;
-            swap(arr[i], arr[j]);
+        } else if (arr[i] > pivot) {
+            swap(arr[i], arr[g_pivot]);
+            g_pivot--;
+        } else {
+            i++;
         }
     }
-    swap(arr[i + 1], arr[high]);
-    return i + 1;
 }
 
 void quick_sort(vector<int> &arr, int low, int high) {
     if (low < high) {
-        int pi = partition(arr, low, high);
-        quick_sort(arr, low, pi - 1);
-        quick_sort(arr, pi + 1, high);
+        int l_pivot, g_pivot;
+        partition(arr, low, high, l_pivot, g_pivot);
+        quick_sort(arr, low, l_pivot - 1);
+        quick_sort(arr, g_pivot + 1, high);
     }
 }
 
@@ -62,13 +69,13 @@ int main() {
 
     vector<int> input_arr = repeated_arr_1;
     double time_taken1 = measure_time(quick_sort, input_arr);
-    cout << "Input (100,000 repeated elements, all 1): " << time_taken1 << " seconds" << endl;
+    cout << "Time taken (100,000 repeated elements, all 1): " << time_taken1 << " seconds" << endl;
     input_arr = repeated_arr_2;
     double time_taken2 = measure_time(quick_sort, input_arr);
-    cout << "Input (50,000 repeated elements and random elements split): " << time_taken2 << " seconds" << endl;
+    cout << "Time taken (50,000 repeated elements and random elements split): " << time_taken2 << " seconds" << endl;
     input_arr = repeated_arr_3;
     double time_taken3 = measure_time(quick_sort, input_arr);
-    cout << "Input (elements alternating between 2 and 20): " << time_taken3 << " seconds" << endl;
+    cout << "Time taken (elements alternating between 2 and 20): " << time_taken3 << " seconds" << endl;
 
     return 0;
 }
