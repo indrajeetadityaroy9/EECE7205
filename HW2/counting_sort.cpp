@@ -5,26 +5,26 @@
 
 using namespace std;
 
-void counting_sort(vector<int>& A) {
-    if (A.empty()) return;
+void counting_sort(vector<int>& arr) {
+    if (arr.empty()) return;
 
-    const auto [min, max] = minmax_element(A.begin(), A.end());
+    const auto [min, max] = minmax_element(arr.begin(), arr.end());
     const int range = *max - *min + 1;
 
     vector<int> count(range, 0);
-    for (const auto& num : A) {
+    for (const auto& num : arr) {
         count[num - *min]++;
     }
     for (size_t i = 1; i < count.size(); ++i) {
         count[i] += count[i - 1];
     }
 
-    vector<int> output(A.size());
-    for (auto it = A.rbegin(); it != A.rend(); ++it) {
+    vector<int> output(arr.size());
+    for (auto it = arr.rbegin(); it != arr.rend(); ++it) {
         output[--count[*it - *min]] = *it;
     }
 
-    A = move(output);
+    arr = move(output);
 }
 
 int main() {
