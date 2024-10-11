@@ -6,8 +6,6 @@
 using namespace std;
 
 void counting_sort(vector<int>& arr) {
-    if (arr.empty()) return;
-
     const auto [min, max] = minmax_element(arr.begin(), arr.end());
     const int range = *max - *min + 1;
     int n = arr.size();

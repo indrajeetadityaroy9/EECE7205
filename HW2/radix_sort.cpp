@@ -7,25 +7,25 @@ using namespace std;
 
 void digit_counting_sort(vector<int>& arr, int x) {
     int n = arr.size();
-    vector<int> B(n);
-    vector<int> C(10, 0);
+    vector<int> output(n);
+    vector<int> count(10, 0);
 
     for (int i = 0; i < n; i++) {
         int digit = (arr[i] / x) % 10;
-        C[digit]++;
+        count[digit]++;
     }
 
     for (int i = 1; i < 10; i++) {
-        C[i] += C[i - 1];
+        count[i] += count[i - 1];
     }
 
     for (int i = n - 1; i >= 0; i--) {
         int digit = (arr[i] / x) % 10;
-        B[--C[digit]] = arr[i];
+        output[--count[digit]] = arr[i];
     }
 
     for (int i = 0; i < n; i++) {
-        arr[i] = B[i];
+        arr[i] = output[i];
     }
 }
 

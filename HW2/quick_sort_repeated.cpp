@@ -38,9 +38,9 @@ int partition(vector<int> &arr, int low, int high) {
 
 void quick_sort(vector<int> &arr, int low, int high) {
     if (low < high) {
-        int pi = partition(arr, low, high);
-        quick_sort(arr, low, pi - 1);
-        quick_sort(arr, pi + 1, high);
+        int p = partition(arr, low, high);
+        quick_sort(arr, low, p - 1);
+        quick_sort(arr, p + 1, high);
     }
 }
 
