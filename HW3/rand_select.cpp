@@ -62,7 +62,7 @@ int main() {
     for (int k = 1; k <= 10; k++) {
         int result = kth_smallest_element(arr, k);
         if (result != -1) {
-            std::cout << "The " << k << "-th smallest element is " << result << std::endl;
+            std::cout << "The " << k << "-th smallest element: " << result << std::endl;
         }
     }
     return 0;

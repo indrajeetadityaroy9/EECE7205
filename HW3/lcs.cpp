@@ -1,60 +1,67 @@
 #include <iostream>
 #include <vector>
-#include <string_view>
+#include <string>
 #include <algorithm>
+#include <unordered_set>
 
 using namespace std;
 
-// Function to find the length of the LCS and also return the LCS itself
-pair<int, string> lcs(string_view s1, string_view s2) {
+void print_all_lcs(const vector<vector<int>>& C, const vector<vector<char>>& b, const string& s1, int i, int j, string curr_lcs, unordered_set<string>& all_lcs) {
+
+    if (i == 0 || j == 0) {
+        reverse(curr_lcs.begin(), curr_lcs.end());
+        all_lcs.insert(curr_lcs);
+        return;
+    }
+
+    if (b[i][j] == 'D') {
+        curr_lcs.push_back(s1[i - 1]);
+        print_all_lcs(C, b, s1, i - 1, j - 1, curr_lcs, all_lcs);
+    } else {
+        if (b[i][j] == 'U' || C[i - 1][j] == C[i][j]) {
+            print_all_lcs(C, b, s1, i - 1, j, curr_lcs, all_lcs);
+        }
+        if (b[i][j] == 'L' || C[i][j - 1] == C[i][j]) {
+            print_all_lcs(C, b, s1, i, j - 1, curr_lcs, all_lcs);
+        }
+    }
+}
+
+pair<int, unordered_set<string>> lcs(const string& s1, const string& s2) {
     int n = s1.size();
     int m = s2.size();
 
-    // DP table to store LCS length for different prefixes of s1 and s2
-    vector<vector<int>> dp(n + 1, vector<int>(m + 1, 0));
+    vector<vector<int>> C(n + 1, vector<int>(m + 1, 0));
+    vector<vector<char>> b(n + 1, vector<char>(m + 1, ' '));
 
-    // Fill DP table
     for (int i = 1; i <= n; ++i) {
         for (int j = 1; j <= m; ++j) {
             if (s1[i - 1] == s2[j - 1]) {
-                dp[i][j] = dp[i - 1][j - 1] + 1;
+                C[i][j] = C[i - 1][j - 1] + 1;
+                b[i][j] = 'D';
+            } else if (C[i - 1][j] >= C[i][j - 1]) {
+                C[i][j] = C[i - 1][j];
+                b[i][j] = 'U';
             } else {
-                dp[i][j] = max(dp[i - 1][j], dp[i][j - 1]);
+                C[i][j] = C[i][j - 1];
+                b[i][j] = 'L';
             }
         }
     }
 
-    int index = dp[n][m];
-    string lcs;
-    lcs.reserve(index);
-
-    int i = n, j = m;
-    while (i > 0 && j > 0) {
-        if (s1[i - 1] == s2[j - 1]) {
-            lcs.push_back(s1[i - 1]);
-            --i;
-            --j;
-        } else if (dp[i - 1][j] > dp[i][j - 1]) {
-            --i;
-        } else {
-            --j;
-        }
-    }
-
-    reverse(lcs.begin(), lcs.end());
-
-    return {dp[n][m], lcs};
+    unordered_set<string> all_lcs;
+    print_all_lcs(C, b, s1, n, m, "", all_lcs);
+    return {C[n][m], all_lcs};
 }
 
 int main() {
-    string s1, s2;
-    cout << "Enter first string: ";
-    cin >> s1;
-    cout << "Enter second string: ";
-    cin >> s2;
+    string s1 = "ABCBDAB";
+    string s2 = "BDCABA";
 
-    auto [length, lcs] = lcs(s1, s2);  // Structured binding
-    cout << "Length of LCS: " << length << "\nLCS: " << lcs << endl;
-
+    auto [lcs_length, all_lcs] = lcs(s1, s2);
+    cout << "Length of LCS: " << lcs_length << "\nAll LCS:\n";
+    for (const auto& lcs_str : all_lcs) {
+        cout << lcs_str << endl;
+    }
     return 0;
 }
