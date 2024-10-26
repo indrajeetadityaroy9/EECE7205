@@ -1,131 +1,69 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
-#include <cstdlib>
-#include <ctime>
 #include <random>
 
 using namespace std;
 
-void swap(vector<int> &arr, int i, int j) {
-    int temp = arr[i];
-    arr[i] = arr[j];
-    arr[j] = temp;
-}
+int randomized_partition(vector<int>& arr, int left, int right, mt19937& g) {
+    uniform_int_distribution<int> dist(left, right);
+    int pivot_idx = dist(g);
+    
+    int pivot = arr[pivot_idx];
+    swap(arr[pivot_idx], arr[right]);
+    int partition_idx = left;
 
-int partition(vector<int> &arr, int low, int high) {
-    int pivot = arr[high];
-    int i = low - 1;
-
-    for (int j = low; j < high; j++) {
-        if (arr[j] <= pivot) {
-            i++;
-            swap(arr[i], arr[j]);
+    for (int i = left; i < right; i++) {
+        if (arr[i] < pivot) {
+            swap(arr[i], arr[partition_idx]);
+            partition_idx++;
         }
     }
-    swap(arr[i + 1], arr[high]);
-    return i + 1;
+    swap(arr[partition_idx], arr[right]);
+
+    return partition_idx;
 }
 
-int randomized_partition(vector<int> &arr, int low, int high) {
-    int rand_idx = low + rand () % ( high - low + 1) ;
-    swap(arr, rand_idx, high);  
-    return partition(arr, low, high);
+int rand_select(vector<int>& arr, int p, int q, int i, mt19937& g) {
+    if (p == q)
+        return arr[p];
+
+    int r = randomized_partition(arr, p, q, g);
+    int k = r - p + 1;
+
+    if (i == k)
+        return arr[r];
+    else if (i < k)
+        return rand_select(arr, p, r - 1, i, g);
+    else
+        return rand_select(arr, r + 1, q, i - k, g);
 }
 
-int rand_select(vector<int> &arr, int low, int high, int i) {
-    if (low == high) {
-        return arr[low];
-    }
-
-    int pivotIndex = randomized_partition(arr, low, high);
-    int k = pivotIndex - low + 1;
-
-    if (i == k) {
-        return arr[pivotIndex];
-    } else if (i < k) {
-        return rand_select(arr, low, pivotIndex - 1, i);
-    } else {
-        return rand_select(arr, pivotIndex + 1, high, i - k);
-    }
-}
-
-
-int median(vector<int> &A, int low, int high) {
-    sort(A.begin() + low, A.begin() + high + 1);
-    int mid = (low + high) / 2;
-    return A[mid];
-}
-
-int medianOfMedians(vector<int> &A, int low, int high) {
-    int n = high - low + 1;
-    
-    // Divide the array into groups of 5
-    vector<int> medians;
-    for (int i = 0; i < n / 5; i++) {
-        int groupLow = low + i * 5;
-        int groupHigh = min(groupLow + 4, high);
-        medians.push_back(median(A, groupLow, groupHigh));
-    }
-
-    // If the array size is not a multiple of 5, handle the remainder
-    if (n % 5 != 0) {
-        int groupLow = low + (n / 5) * 5;
-        int groupHigh = high;
-        medians.push_back(median(A, groupLow, groupHigh));
-    }
-
-    // Recursively find the median of medians
-    if (medians.size() <= 5) {
-        return median(medians, 0, medians.size() - 1);
-    } else {
-        return medianOfMedians(medians, 0, medians.size() - 1);
-    }
-}
-
-// Select function (worst-case linear time)
-int select(vector<int> &A, int low, int high, int i) {
-    if (low == high) {
-        return A[low];
-    }
-
-    // Find a good pivot using the median of medians
-    int pivotValue = medianOfMedians(A, low, high);
-    
-    // Partition the array around the pivot
-    int pivotIndex = partition(A, low, high);
-
-    int k = pivotIndex - low + 1;  // Number of elements in the left partition
-
-    if (i == k) {
-        return A[pivotIndex];
-    } else if (i < k) {
-        return select(A, low, pivotIndex - 1, i);
-    } else {
-        return select(A, pivotIndex + 1, high, i - k);
-    }
+int kth_smallest_element(vector<int>& arr, int k) {
+    random_device rd;
+    mt19937 g(rd());
+    return rand_select(arr, 0, arr.size() - 1, k, g);
 }
 
 int main() {
-    // Seed for random number generation
-    srand(time(0));
-
-    // Generate the array A = {1, 2, 3, ..., 100}
-    vector<int> A(100);
+    vector<int> arr(100);
     for (int i = 0; i < 100; i++) {
-        A[i] = i + 1;
+        arr[i] = i + 1;
     }
 
-    // Create a random number generator
     random_device rd;
-    mt19937 g(rd());  // Mersenne Twister random number generator
+    mt19937 g(rd());
+    shuffle(arr.begin(), arr.end(), g);
 
-    // Shuffle the array using std::shuffle (C++11 and later)
-    shuffle(A.begin(), A.end(), g);
+    std::cout << "Shuffled input array A: ";
+    std::copy(arr.begin(), arr.end(), std::ostream_iterator<int>(std::cout, " "));
+    std::cout << std::endl;
 
-    // Test Rand-Select to find the 50th smallest element
-    int randSelectResult = rand_select(A, 0, A.size() - 1, 50);
-    cout << "50th smallest element using Rand-Select: " << randSelectResult << endl;
-
+    for (int k = 1; k <= 10; k++) {
+        int result = kth_smallest_element(arr, k);
+        if (result != -1) {
+            std::cout << "The " << k << "-th smallest element is " << result << std::endl;
+        }
+    }
     return 0;
 }
