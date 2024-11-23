@@ -1,1 +1,1 @@
-# EECE7205
+# EECE7205 Algorithms
