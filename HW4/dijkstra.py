@@ -3,13 +3,11 @@ import networkx as nx
 import matplotlib.pyplot as plt
 
 def dijkstra(src, V, G_adj_list):
-    # Priority queue for storing (distance, vertex)
     Q = []
-    # Distance array initialized to infinity
     d = [float('inf')] * V
 
     d[src] = 0
-    heapq.heappush(Q, (0, src))  # (distance, vertex)
+    heapq.heappush(Q, (0, src))
 
     while Q:
         dist, u = heapq.heappop(Q)
@@ -22,14 +20,12 @@ def dijkstra(src, V, G_adj_list):
                 d[v] = d[u] + w
                 heapq.heappush(Q, (d[v], v))
 
-    # Print distances from the source
     print("Vertex\tDistance from Source")
     for vertex, distance in enumerate(d):
         print(f"{vertex}\t{'INF' if distance == float('inf') else distance}")
     
     return d
 
-# Graph adjacency list
 V = 8
 G_adj_list = {
     0: [(1, 3), (3, 7)],
@@ -42,20 +38,16 @@ G_adj_list = {
     7: [],
 }
 
-# Running Dijkstra's algorithm
 src = 0
 distances = dijkstra(src, V, G_adj_list)
 
-# Creating the graph using NetworkX
 G = nx.DiGraph()
 for u, neighbors in G_adj_list.items():
     for v, w in neighbors:
         G.add_edge(u, v, weight=w)
 
-# Visualizing the graph and the shortest path tree
-pos = nx.spring_layout(G)  # Layout for better visualization
+pos = nx.spring_layout(G)
 
-# Draw the original graph
 plt.figure(figsize=(12, 6))
 plt.subplot(1, 2, 1)
 nx.draw(G, pos, with_labels=True, node_color='lightblue', node_size=500, font_size=10)
@@ -63,7 +55,6 @@ edge_labels = nx.get_edge_attributes(G, 'weight')
 nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
 plt.title("Original Graph")
 
-# Shortest path tree visualization
 SP_tree = nx.DiGraph()
 for u in range(V):
     for v, w in G_adj_list[u]:

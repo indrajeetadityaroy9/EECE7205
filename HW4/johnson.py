@@ -9,7 +9,6 @@ def visualize_full_process(original_graph, reweighted_graph, potentials, V):
     """Visualizes the full process: Original Graph, Bellman-Ford Potentials, and Reweighted Graph."""
     fig, axes = plt.subplots(1, 2, figsize=(18, 6))
 
-    # Plot Original Graph
     G1 = nx.DiGraph()
     for u in range(V):
         if u in original_graph:
@@ -18,11 +17,10 @@ def visualize_full_process(original_graph, reweighted_graph, potentials, V):
 
     pos = nx.spring_layout(G1, seed=42)
     edge_labels = nx.get_edge_attributes(G1, 'weight')
-    nx.draw(G1, pos, with_labels=True, ax=axes[0], node_color='lightblue', node_size=2000, font_size=12, font_weight='bold')
+    nx.draw(G1, pos, with_labels=True, ax=axes[0], node_color='lightblue', node_size=500, font_size=12, font_weight='bold')
     nx.draw_networkx_edge_labels(G1, pos, edge_labels=edge_labels, font_size=10, ax=axes[0])
     axes[0].set_title("Original Graph with Negative Edges Weights")
 
-    # Plot Reweighted Graph
     G3 = nx.DiGraph()
     for u in range(V):
         if u in reweighted_graph:
@@ -30,7 +28,7 @@ def visualize_full_process(original_graph, reweighted_graph, potentials, V):
                 G3.add_edge(u, v, weight=w)
 
     edge_labels_reweighted = nx.get_edge_attributes(G3, 'weight')
-    nx.draw(G3, pos, with_labels=True, ax=axes[1], node_color='lightblue', node_size=2000, font_size=12, font_weight='bold')
+    nx.draw(G3, pos, with_labels=True, ax=axes[1], node_color='lightblue', node_size=500, font_size=12, font_weight='bold')
     nx.draw_networkx_edge_labels(G3, pos, edge_labels=edge_labels_reweighted, font_size=10, ax=axes[1])
     axes[1].set_title("Transformed Graph with No Negative Edge Weights")
 
@@ -78,13 +76,14 @@ def johnson(V, G):
     visualize_full_process(original_graph, reweighted_graph, h, V)
 
 if __name__ == "__main__":
-    V = 4
+    V = 5
     graph = [
-        [0, -5, 2, 3],
-        [0,  0, 4, 0],
-        [0,  0, 0, 1],
-        [0,  0, 0, 0]
-    ]
+    [0,  3,  8,  0,  0],
+    [0,  0,  0,  1, -4],
+    [0,  0,  0,  0,  2],
+    [2,  0, -5,  0,  0],
+    [0,  0,  0,  6,  0]
+]
 
     G = defaultdict(list)
     for u in range(V):

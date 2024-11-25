@@ -6,7 +6,7 @@
 #include <utility>
 using namespace std;
 
-void dijkstra(int src, int V, map<int, vector<pair<int, int>>>& G) {
+vector<int> dijkstra(int src, int V, map<int, vector<pair<int, int>>>& G) {
     vector<int> d(V, INT_MAX);
     vector<bool> visited(V, false);
     vector<pair<int, int>> Q;
@@ -43,43 +43,27 @@ void dijkstra(int src, int V, map<int, vector<pair<int, int>>>& G) {
             }
         }
     }
-
-    cout << "Vertex\tDistance from Source\n";
-    for (int i = 0; i < V; i++) {
-        cout << i << "\t";
-        if (d[i] == INT_MAX) {
-            cout << "INF\n";
-        } else {
-            cout << d[i] << "\n";
-        }
-    }
+    return d;
 }
 
 int main() {
     int V = 8;
-    vector<tuple<int, int, int>> edges = {
-        {0, 1, 3},
-        {0, 3, 7},
-        {1, 2, 1},
-        {1, 3, 4},
-        {2, 3, 2},
-        {2, 4, 5},
-        {3, 4, 1},
-        {4, 5, 7},
-        {4, 6, 3},
-        {5, 6, 2},
-        {5, 7, 4},
-        {6, 7, 6},
-    };
-
     map<int, vector<pair<int, int>>> G;
-    for (auto& edge : edges) {
-        int u, v, w;
-        tie(u, v, w) = edge;
-        G[u].emplace_back(v, w);
-    }
+    G[0] = {{1, 3}, {3, 7}};
+    G[1] = {{2, 1}, {3, 4}};
+    G[2] = {{3, 2}, {4, 5}};
+    G[3] = {{4, 1}};
+    G[4] = {{5, 7}, {6, 3}};
+    G[5] = {{6, 2}, {7, 4}};
+    G[6] = {{7, 6}};
+    G[7] = {};
 
     int src = 0;
-    dijkstra(src, V, G);
+    vector<int> distances = dijkstra(src, V, G);
+
+    cout << "Vertex\tDistance from Source\n";
+    for (int i = 0; i < distances.size(); i++) {
+        cout << i << "\t" << distances[i] << "\n";
+    }
     return 0;
 }

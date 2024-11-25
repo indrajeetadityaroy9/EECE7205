@@ -6,22 +6,24 @@
 using namespace std;
 
 vector<int> bf_dist;
-
 bool bellmanFord(int src, int V, map<int, vector<pair<int, int>>>& G) {
     vector<int> d(V, INT_MAX);
     d[src] = 0;
 
     for (int i = 0; i < V - 1; ++i) {
+        bool relaxed = false;
         for (int u = 0; u < V; ++u) {
-            if (G.find(u) != G.end()) {
-                for (auto& e : G[u]) {
-                    int v = e.first;
-                    int w = e.second;
-                    if (d[u] != INT_MAX && d[u] + w < d[v]) {
-                        d[v] = d[u] + w;
-                    }
+            for (auto& e : G[u]) {
+                int v = e.first;
+                int w = e.second;
+                if (d[u] != INT_MAX && d[u] + w < d[v]) {
+                    d[v] = d[u] + w;
+                    relaxed = true;
                 }
             }
+        }
+        if (!relaxed){
+            break;
         }
     }
 
@@ -87,38 +89,23 @@ void johnson(int V, map<int, vector<pair<int, int>>>& G) {
     }
 
     if (!bellmanFord(V, V + 1, G)) {
-        cout << "Negative weight cycle detected. Algorithm cannot proceed." << endl;
         return;
     }
 
     vector<int> h = bf_dist;
     map<int, vector<pair<int, int>>> new_G;
 
+    cout << left << setw(10) << "Edge" << setw(20) << "Original Weight" << setw(20) << "New Weight" << endl;
     for (int u = 0; u < V; ++u) {
         for (auto& [v, w] : G[u]) {
-            // w'(u,v) = w(u,v) + h(u) - h(v)
             int new_w = w + h[u] - h[v];
             new_G[u].emplace_back(v, new_w);
+            cout << setw(20) << "(" + to_string(u) + " -> " + to_string(v) + ")"
+                 << setw(15) << w
+                 << setw(20) << new_w << endl;
         }
     }
     cout << endl;
-
-    cout << "New Graph (Graph after adjusting edge weights to eliminate negative weights):" << endl;
-    for (int u = 0; u < V; ++u) {
-        for (int v = 0; v < V; ++v) {
-            int w = INT_MAX;
-            if (new_G.find(u) != new_G.end()) {
-                for (const auto& e : new_G[u]) {
-                    if (e.first == v) {
-                        w = e.second;
-                        break;
-                    }
-                }
-            }
-            cout << setw(5) << (w == INT_MAX ? "0" : to_string(w));
-        }
-        cout << endl;
-    }
 
     vector<vector<int>> all_pairs_distances(V, vector<int>(V, INT_MAX));
     for (int u = 0; u < V; ++u) {
@@ -131,32 +118,32 @@ void johnson(int V, map<int, vector<pair<int, int>>>& G) {
         }
     }
 
-    cout << "Original Graph Shortest Paths Between All Pairs (After Conversion from Reweighted Graph):" << endl;
+    cout << "All Pairs Shortest Paths in Original Graph G:" << endl;
+    cout << setw(6) << " " << " ";
+    for (int i = 0; i < V; ++i) {
+        cout << setw(8) << ("V" + to_string(i));
+    }
+    cout << endl;
     for (int u = 0; u < V; ++u) {
+        cout << setw(6) << ("V" + to_string(u)) << " ";
         for (int v = 0; v < V; ++v) {
-            cout << setw(5) << (all_pairs_distances[u][v] == INT_MAX ? "inf" : to_string(all_pairs_distances[u][v]));
+            if (all_pairs_distances[u][v] == INT_MAX)
+                cout << setw(8) << "inf";
+            else
+                cout << setw(8) << all_pairs_distances[u][v];
         }
         cout << endl;
     }
 }
 
 int main() {
-    int V = 4;
-    vector<vector<int>> graph = {
-        {0, -5, 2, 3},
-        {0,  0, 4, 0},
-        {0,  0, 0, 1},
-        {0,  0, 0, 0}
-    };
-
+    int V = 5;
     map<int, vector<pair<int, int>>> G;
-    for (int u = 0; u < V; ++u) {
-        for (int v = 0; v < V; ++v) {
-            if (graph[u][v] != 0) {
-                G[u].emplace_back(v, graph[u][v]);
-            }
-        }
-    }
+    G[0] = {{1, 3}, {2, 8}};
+    G[1] = {{3, 1}, {4, -4}};
+    G[2] = {{4, 2}};
+    G[3] = {{0, 2}, {2, -5}};
+    G[4] = {{3, 6}};
 
     johnson(V, G);
     return 0;

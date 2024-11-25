@@ -1,7 +1,6 @@
 #include <iostream>
 #include <vector>
 #include <climits>
-
 using namespace std;
 
 int extract_min(const vector<int>& key, const vector<bool>& selected) {
@@ -21,7 +20,6 @@ void prim(const vector<vector<int>>& G, int V) {
     vector<int> key(V, INT_MAX);
     vector<int> MST(V, -1);
     vector<bool> selected(V, false);
-
     key[0] = 0;
 
     for (int i = 0; i < V - 1; ++i) {
