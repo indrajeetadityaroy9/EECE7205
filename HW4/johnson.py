@@ -3,85 +3,93 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 import heapq
 
-INT_MAX = float('inf')
+INF = float('inf')
 
-def visualize_graph(G, edge_labels=None):
-    """
-    Visualize the graph using NetworkX.
-    """
-    pos = nx.spring_layout(G)  # Layout for visualization
-    nx.draw(G, pos, with_labels=True, node_color="lightblue", node_size=500, font_size=10, font_weight="bold")
-    if edge_labels:
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+def visualize_full_process(original_graph, reweighted_graph, potentials, V):
+    """Visualizes the full process: Original Graph, Bellman-Ford Potentials, and Reweighted Graph."""
+    fig, axes = plt.subplots(1, 2, figsize=(18, 6))
+
+    # Plot Original Graph
+    G1 = nx.DiGraph()
+    for u in range(V):
+        if u in original_graph:
+            for v, w in original_graph[u]:
+                G1.add_edge(u, v, weight=w)
+
+    pos = nx.spring_layout(G1, seed=42)
+    edge_labels = nx.get_edge_attributes(G1, 'weight')
+    nx.draw(G1, pos, with_labels=True, ax=axes[0], node_color='lightblue', node_size=2000, font_size=12, font_weight='bold')
+    nx.draw_networkx_edge_labels(G1, pos, edge_labels=edge_labels, font_size=10, ax=axes[0])
+    axes[0].set_title("Original Graph with Negative Edges Weights")
+
+    # Plot Reweighted Graph
+    G3 = nx.DiGraph()
+    for u in range(V):
+        if u in reweighted_graph:
+            for v, w in reweighted_graph[u]:
+                G3.add_edge(u, v, weight=w)
+
+    edge_labels_reweighted = nx.get_edge_attributes(G3, 'weight')
+    nx.draw(G3, pos, with_labels=True, ax=axes[1], node_color='lightblue', node_size=2000, font_size=12, font_weight='bold')
+    nx.draw_networkx_edge_labels(G3, pos, edge_labels=edge_labels_reweighted, font_size=10, ax=axes[1])
+    axes[1].set_title("Transformed Graph with No Negative Edge Weights")
+
+    plt.tight_layout()
     plt.show()
 
-def dijkstra_networkx(graph, src):
-    """
-    Dijkstra's algorithm using NetworkX's built-in functionality for a single source.
-    """
-    return nx.single_source_dijkstra(graph, src)
+def bellman_ford(src, V, G):
+    d = [INF] * V
+    d[src] = 0
 
-def johnson_with_visualization(V, edges):
-    """
-    Implement Johnson's Algorithm with visualization at key steps.
-    """
-    # Step 1: Create a graph
-    G = nx.DiGraph()
-    for u, v, w in edges:
-        G.add_edge(u, v, weight=w)
-    
-    print("Original Graph:")
-    edge_labels = {(u, v): f"{w}" for u, v, w in edges}
-    visualize_graph(G, edge_labels=edge_labels)
+    for _ in range(V - 1):
+        for u in range(V):
+            if u in G:
+                for v, w in G[u]:
+                    if d[u] != INF and d[u] + w < d[v]:
+                        d[v] = d[u] + w
 
-    # Step 2: Add a temporary vertex for reweighting
-    reweighting_graph = G.copy()
-    reweighting_graph.add_node(V)  # Temporary node
-    for node in range(V):
-        reweighting_graph.add_edge(V, node, weight=0)
+    for u in range(V):
+        if u in G:
+            for v, w in G[u]:
+                if d[u] != INF and d[u] + w < d[v]:
+                    print("Graph contains a negative weight cycle.")
+                    return False, []
 
-    print("Graph with reweighting node added:")
-    visualize_graph(reweighting_graph)
+    return True, d
 
-    # Step 3: Bellman-Ford for reweighting
-    try:
-        h = nx.single_source_bellman_ford_path_length(reweighting_graph, V)
-    except nx.NetworkXUnbounded:
-        print("Graph contains a negative weight cycle.")
+def johnson(V, G):
+    original_graph = G.copy()
+
+    G[V] = [(u, 0) for u in range(V)]
+
+    has_no_neg_cycle, h = bellman_ford(V, V + 1, G)
+    if not has_no_neg_cycle:
+        print("Negative weight cycle detected. Algorithm cannot proceed.")
         return
 
-    print(f"Reweighting values (h): {h}")
+    del G[V]
 
-    # Step 4: Reweight the graph
-    reweighted_graph = nx.DiGraph()
-    for u, v, data in G.edges(data=True):
-        reweighted_graph.add_edge(u, v, weight=data['weight'] + h[u] - h[v])
+    reweighted_graph = defaultdict(list)
+    for u in range(V):
+        for v, w in G[u]:
+            new_w = w + h[u] - h[v]
+            reweighted_graph[u].append((v, new_w))
 
-    print("Reweighted Graph:")
-    edge_labels = {(u, v): f"{data['weight']}" for u, v, data in reweighted_graph.edges(data=True)}
-    print(f"Edge Labels: {edge_labels}")
-    visualize_graph(reweighted_graph, edge_labels=edge_labels)
-
-    # Step 5: Compute shortest paths using Dijkstra's algorithm
-    for src in range(V):
-        distances, paths = dijkstra_networkx(reweighted_graph, src)
-        print(f"Shortest paths from vertex {src}:")
-        for dest in range(V):
-            if dest in distances:
-                # Convert back to original weights
-                original_dist = distances[dest] - h[src] + h[dest]
-                print(f"  To vertex {dest}: {original_dist}")
-            else:
-                print(f"  To vertex {dest}: inf")
+    visualize_full_process(original_graph, reweighted_graph, h, V)
 
 if __name__ == "__main__":
     V = 4
-    edges = [
-        (0, 1, -5),
-        (0, 2, 2),
-        (0, 3, 3),
-        (1, 2, 4),
-        (2, 3, 1)
+    graph = [
+        [0, -5, 2, 3],
+        [0,  0, 4, 0],
+        [0,  0, 0, 1],
+        [0,  0, 0, 0]
     ]
 
-    johnson_with_visualization(V, edges)
+    G = defaultdict(list)
+    for u in range(V):
+        for v in range(V):
+            if graph[u][v] != 0:
+                G[u].append((v, graph[u][v]))
+
+    johnson(V, G)
