@@ -1,5 +1,7 @@
-import sys
-from copy import deepcopy
+import matplotlib.pyplot as plt
+import networkx as nx
+import numpy as np
+from collections import defaultdict
 
 task_core_values = {
     1: [9, 7, 5],
@@ -37,15 +39,21 @@ class Node:
         self.cloud_execution_time = sum(cloud_speed)
 
 def calculate_earliest_start_time(node, core_earliest_ready, cloud_earliest_ready):
-    """Calculate earliest possible start time considering predecessors"""
+    """
+    Implements Section II.C.1 and II.C.2 for calculating ready times:
+    - Equation (3): RT_i^l = max_{v_j ∈ pred(v_i)} max{FT_j^l, FT_j^wr}
+    - Equation (4): RT_i^ws = max_{v_j ∈ pred(v_i)} max{FT_j^l, FT_j^ws}
+    """
     if not node.parents:
         return 0, 0
-
+    
+    # Equation (3) for local ready time
     local_ready = max(
         max(parent.local_finish_time, parent.cloud_receiving_finish_time)
         for parent in node.parents
     )
     
+    # Equation (4) for cloud sending ready time
     cloud_ready = max(
         max(parent.local_finish_time, parent.cloud_sending_finish_time)
         for parent in node.parents
@@ -54,12 +62,16 @@ def calculate_earliest_start_time(node, core_earliest_ready, cloud_earliest_read
     return local_ready, cloud_ready
 
 def primary_assignment(nodes, core_earliest_ready, cloud_earliest_ready):
-    """Enhanced primary assignment considering both execution time and data transfer overhead"""
+    """
+    Implements Section III.A.1 (Initial Scheduling Algorithm Primary Assignment):
+    - Equation (11): T_i^{l,min} = min_{1≤k≤K} T_i^{l,k}
+    - Equation (12): T_i^{re} = T_i^s + T_i^c + T_i^r
+    - Assigns tasks to cloud if T_i^{re} < T_i^{l,min}
+    """
     for node in nodes:
-        # Calculate earliest possible start times
         local_ready, cloud_ready = calculate_earliest_start_time(node, core_earliest_ready, cloud_earliest_ready)
         
-        # Find minimum local execution time
+        # Equation (11): Find minimum local execution time
         min_local_time = float('inf')
         best_core = -1
         for core in range(3):
@@ -70,11 +82,11 @@ def primary_assignment(nodes, core_earliest_ready, cloud_earliest_ready):
                 min_local_time = total_time
                 best_core = core
 
-        # Calculate cloud execution time including transfer overhead
+        # Equation (12): Calculate estimated remote execution time
         cloud_start = max(cloud_ready, cloud_earliest_ready)
         cloud_total_time = cloud_start + node.cloud_execution_time
 
-        # Make assignment decision
+        # Assignment decision based on equations (11) and (12)
         if cloud_total_time < min_local_time:
             node.is_core = False
             node.assignment = 3
@@ -83,15 +95,20 @@ def primary_assignment(nodes, core_earliest_ready, cloud_earliest_ready):
             node.assignment = best_core
 
 def calculate_priority(task, weights, priority_cache):
-    """Calculate upward rank (priority) of tasks"""
+    """
+    Implements Section III.A.2 (Initial Scheduling Algorithm Task prioritizing):
+    - Equation (15): priority(v_i) = w_i + max_{v_j ∈ succ(v_i)} priority(v_j)
+    - Equation (16): priority(v_i) = w_i for exit tasks
+    """
     if task.task_id in priority_cache:
         return priority_cache[task.task_id]
-
-    if not task.children:  # Exit task
+    
+    # Equation (16) for exit tasks
+    if not task.children:
         priority_cache[task.task_id] = weights[task.task_id - 1]
         return weights[task.task_id - 1]
 
-    # Calculate maximum path to exit
+    # Equation (15) for non-exit tasks
     max_successor_priority = max(
         calculate_priority(child, weights, priority_cache) 
         for child in task.children
@@ -102,33 +119,41 @@ def calculate_priority(task, weights, priority_cache):
     return priority
 
 def task_prioritizing(nodes):
-    """Prioritize tasks based on upward rank"""
+    """
+    Implements Section III.A.2 (Initial Scheduling Algorithm Task prioritizing):
+    - Equation (13): w_i = T_i^{re} for cloud tasks
+    - Equation (14): w_i = avg_{1≤k≤K} T_i^{l,k} for local tasks
+    """
     weights = []
     for node in nodes:
-        # Average execution time as weight
+         # Equations (13) and (14) for weight calculation
         if node.is_core:
-            weights.append(sum(node.core_speed) / len(node.core_speed))
+            weights.append(sum(node.core_speed) / len(node.core_speed)) # Equation (14)
         else:
-            weights.append(node.cloud_execution_time)
+            weights.append(node.cloud_execution_time) # Equation (13)
 
     priority_cache = {}
     for node in nodes:
         node.priority_score = calculate_priority(node, weights, priority_cache)
 
 def get_possible_finish_times(node, core_earliest_ready, cloud_earliest_ready):
-    """Calculate possible finish times for all execution units"""
+    """
+    Implements Section II.C.1 and II.C.2 for calculating ready times:
+    - Equation (3) for local ready time
+    - Equations (4)-(6) for cloud execution timing
+    """
     local_ready, cloud_ready = calculate_earliest_start_time(
         node, core_earliest_ready, cloud_earliest_ready
     )
     
     finish_times = []
-    # Calculate finish times for each core
+    # Calculate local finish times for each core
     for core in range(3):
         start_time = max(local_ready, core_earliest_ready[core])
         finish_time = start_time + node.core_speed[core]
         finish_times.append((finish_time, core, True, start_time))
     
-    # Calculate cloud finish time
+    # Calculate cloud finish time using equations (4)-(6)
     cloud_start = max(cloud_ready, cloud_earliest_ready)
     cloud_finish = cloud_start + node.cloud_execution_time
     finish_times.append((cloud_finish, 3, False, cloud_start))
@@ -136,8 +161,13 @@ def get_possible_finish_times(node, core_earliest_ready, cloud_earliest_ready):
     return finish_times
 
 def execution_unit_selection(nodes):
-    """Schedule tasks with improved selection logic"""
-    k = 3  # Number of local cores
+    """
+    Implements Section III.A.3 (Initial Scheduling Algorithm Execution unit selection):
+    - Tasks are scheduled in descending order of priorities
+    - When task v_i is selected, all its predecessors are already scheduled
+      (based on priority(v_j) > priority(v_i) from equation (15))
+    """
+    k = 3
     core_seqs = [[] for _ in range(k)]
     cloud_seq = []
     core_earliest_ready = [0] * k
@@ -147,7 +177,7 @@ def execution_unit_selection(nodes):
     nodes = sorted(nodes, key=lambda x: x.priority_score, reverse=True)
     
     for node in nodes:
-        # Get all possible finish times
+        # Get all possible finish times (both core and cloud)
         finish_times = get_possible_finish_times(
             node, core_earliest_ready, cloud_earliest_ready
         )
@@ -156,6 +186,10 @@ def execution_unit_selection(nodes):
         finish_time, unit, is_core, start_time = min(finish_times)
         
         if is_core:
+            # Local core scheduling:
+            # 1. Ensure task-precedence (through ready_time calculation)
+            # 2. Schedule on selected core
+            # 3. Update core availability
             node.is_core = True
             node.assignment = unit
             node.local_ready_time = start_time
@@ -163,6 +197,12 @@ def execution_unit_selection(nodes):
             core_earliest_ready[unit] = finish_time
             core_seqs[unit].append(node.task_id)
         else:
+            # Cloud scheduling:
+            # 1. RT_i^ws: cloud_sending_ready_time = start_time
+            # 2. FT_i^ws: cloud_sending_finish_time = RT_i^ws + T_i^s
+            # 3. RT_i^c: cloud_ready_time = FT_i^ws
+            # 4. FT_i^c: cloud_finish_time = RT_i^c + T_i^c
+            # 5. FT_i^wr: cloud_receiving_finish_time = FT_i^c + T_i^r
             node.is_core = False
             node.assignment = 3
             node.cloud_sending_ready_time = start_time
@@ -170,6 +210,7 @@ def execution_unit_selection(nodes):
             node.cloud_ready_time = node.cloud_sending_finish_time
             node.cloud_finish_time = node.cloud_ready_time + node.cloud_speed[1]
             node.cloud_receiving_finish_time = node.cloud_finish_time + node.cloud_speed[2]
+            # Update cloud channel availability
             cloud_earliest_ready = node.cloud_receiving_finish_time
             cloud_seq.append(node.task_id)
         
@@ -178,17 +219,25 @@ def execution_unit_selection(nodes):
     return core_seqs + [cloud_seq]
 
 def total_energy(nodes, core_powers, cloud_sending_power):
-    """Calculate total energy consumption"""
+    """
+    Implements Section II.D for calculating total energy consumption:
+    - Equation (7): E_i^{l,k} = P_k * T_i^{l,k}
+    - Equation (8): E_i^c = P^s * T_i^s
+    - Equation (9): E^{total} = sum_{i=1}^N E_i
+    """
     total = 0.0
     for node in nodes:
         if node.is_core:
-            total += core_powers[node.assignment] * node.core_speed[node.assignment]
+            total += core_powers[node.assignment] * node.core_speed[node.assignment] # Equation (7)
         else:
-            total += cloud_sending_power * node.cloud_speed[0]
+            total += cloud_sending_power * node.cloud_speed[0] # Equation (8)
     return total
 
 def total_time(nodes):
-    """Calculate total completion time"""
+    """
+    Implements Section II.D for calculating total application completion time:
+    - Equation (10): T^{total} = max_{v_i ∈ exit tasks} max{FT_i^l, FT_i^wr}
+    """
     return max(
         max(node.local_finish_time, node.cloud_receiving_finish_time)
         for node in nodes
@@ -196,7 +245,9 @@ def total_time(nodes):
     )
 
 def log_task_details(nodes):
-    """Log execution details for each task"""
+    """
+    Log execution details for each task
+    """
     for node in nodes:
         result = {"node id": node.task_id, "assignment": node.assignment + 1}
         if node.is_core:
@@ -215,6 +266,24 @@ def log_task_details(nodes):
             })
         print(result)
 
+def create_and_visualize_task_graph(nodes):
+    """
+    Create a NetworkX graph from Node objects and visualize it with a hierarchical layout.
+    """
+    G = nx.DiGraph()
+    for node in nodes:
+        G.add_node(node.task_id)
+    for node in nodes:
+        for child in node.children:
+            G.add_edge(node.task_id, child.task_id)
+    
+    plt.figure(figsize=(8, 10))
+    pos = nx.nx_agraph.graphviz_layout(G, prog='dot', args='-Grankdir=TB')
+    nx.draw(G, pos, with_labels=True, node_color='lightblue', node_size=500, font_size=17)
+    nx.draw_networkx_edges(G, pos, arrows=True, arrowsize=15)
+    plt.axis('off')
+    return plt.gcf()
+
 if __name__ == "__main__":
     # Initialize task graph
     node10 = Node(10)
@@ -228,7 +297,6 @@ if __name__ == "__main__":
     node2 = Node(2, children=[node8, node9])
     node1 = Node(1, children=[node2, node3, node4, node5, node6])
 
-    # Set parent relationships
     node10.parents = [node7, node8, node9]
     node9.parents = [node2, node4, node5]
     node8.parents = [node2, node4, node6]
@@ -242,10 +310,12 @@ if __name__ == "__main__":
 
     nodes = [node1, node2, node3, node4, node5, node6, node7, node8, node9, node10]
 
-    # Execute scheduling algorithm
+    fig = fig = create_and_visualize_task_graph(nodes)
+    plt.savefig('task_graph.png', bbox_inches='tight', dpi=300)
+    plt.close()
+
     core_earliest_ready = [0, 0, 0]
     cloud_earliest_ready = 0
-    
     primary_assignment(nodes, core_earliest_ready, cloud_earliest_ready)
     task_prioritizing(nodes)
     sequences = execution_unit_selection(nodes)
@@ -253,3 +323,4 @@ if __name__ == "__main__":
     print("INITIAL TIME: ", total_time(nodes))
     print("INITIAL ENERGY:", total_energy(nodes, core_powers=[1, 2, 4], cloud_sending_power=0.5))
     log_task_details(nodes)
+    print(sequences)
