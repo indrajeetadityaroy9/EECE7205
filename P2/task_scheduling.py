@@ -144,20 +144,35 @@ def execution_unit_selection(nodes):
             sequences[3].append(node)  # Store Node objects
     return sequences
 
+def calculate_energy_consumption(node, core_powers, cloud_sending_power):
+    """
+    Calculates energy consumption for a single task based on its assignment.
+    Implementation of equations (7) and (8) from the paper.
+    """
+    if node.is_core:
+        # Equation (7): E_l,k_i = P_k * T_l,k_i
+        return core_powers[node.assignment] * node.core_speed[node.assignment]
+    else:
+        # Equation (8): E_c_i = P_s * T_s_i
+        return cloud_sending_power * node.cloud_speed[0]
+
 def total_energy(nodes, core_powers, cloud_sending_power):
-    total = 0.0
-    for node in nodes:
-        if node.is_core:
-            total += core_powers[node.assignment] * node.core_speed[node.assignment]
-        else:
-            total += cloud_sending_power * node.cloud_speed[0]
-    return total
+    """
+    Calculates total energy consumption for all tasks.
+    Implementation of equation (9) from the paper.
+    """
+    return sum(calculate_energy_consumption(node, core_powers, cloud_sending_power) 
+              for node in nodes)
 
 def total_time(nodes):
+    """
+    Calculates total completion time.
+    Implementation of equation (10) from the paper
+    """
     return max(
         max(node.local_finish_time, node.cloud_receiving_finish_time)
         for node in nodes
-        if not node.children
+        if not node.children  # Only consider exit tasks
     )
 
 def task_migration_algorithm(nodes, sequences, initial_time, initial_energy, T_max):
