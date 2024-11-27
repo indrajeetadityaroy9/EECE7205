@@ -41,7 +41,7 @@ class Node:
         self.cloud_speed = cloud_speed
         self.cloud_execution_time = sum(cloud_speed)
 
-def calculate_earliest_start_time(node, core_earliest_ready, cloud_earliest_ready):
+def calculate_earliest_start_time(node):
     """
     Implements Section II.C.1 and II.C.2 for calculating ready times:
     - Equation (3): RT_i^l = max_{v_j ∈ pred(v_i)} max{FT_j^l, FT_j^wr}
@@ -72,7 +72,7 @@ def primary_assignment(nodes, core_earliest_ready, cloud_earliest_ready):
     - Assigns tasks to cloud if T_i^{re} < T_i^{l,min}
     """
     for node in nodes:
-        local_ready, cloud_ready = calculate_earliest_start_time(node, core_earliest_ready, cloud_earliest_ready)
+        local_ready, cloud_ready = calculate_earliest_start_time(node)
         
         # Equation (11): Find minimum local execution time
         min_local_time = float('inf')
@@ -145,9 +145,7 @@ def get_possible_finish_times(node, core_earliest_ready, cloud_earliest_ready):
     - Equation (3) for local ready time
     - Equations (4)-(6) for cloud execution timing
     """
-    local_ready, cloud_ready = calculate_earliest_start_time(
-        node, core_earliest_ready, cloud_earliest_ready
-    )
+    local_ready, cloud_ready = calculate_earliest_start_time(node)
     
     finish_times = []
     # Calculate local finish times for each core
@@ -248,26 +246,31 @@ def total_time(nodes):
     )
 
 def log_task_details(nodes):
-    """
-    Log execution details for each task
-    """
+    tasks_for_plotting = []
+
     for node in nodes:
-        result = {"node id": node.task_id, "assignment": node.assignment + 1}
-        if node.is_core:
-            result.update({
-                "local start_time": node.local_ready_time,
-                "local finish_time": node.local_finish_time,
-            })
-        else:
-            result.update({
+        if node.is_core == False:
+            task_details = {
+                "node id": node.task_id,
+                "assignment": node.assignment + 1,
                 "cloud start_time": node.cloud_ready_time,
-                "cloud finish_time": node.cloud_finish_time,
+                "cloud finish_time": node.cloud_ready_time + node.cloud_speed[1],
                 "ws start_time": node.cloud_sending_ready_time,
-                "ws finish_time": node.cloud_sending_finish_time,
-                "wr start_time": node.cloud_receiving_finish_time - node.cloud_speed[2],
-                "wr finish_time": node.cloud_receiving_finish_time,
-            })
-        print(result)
+                "ws finish_time": node.cloud_sending_ready_time + node.cloud_speed[0],
+                "wr start_time": node.cloud_finish_time,
+                "wr finish_time": node.cloud_receiving_finish_time + node.cloud_speed[2]
+            }
+        else:  # Task handled locally
+            task_details = {
+                "node id": node.task_id,
+                "assignment": node.assignment + 1,
+                "local start_time": node.local_ready_time,
+                "local finish_time": node.local_ready_time + node.core_speed[node.assignment]
+            }
+
+        tasks_for_plotting.append(task_details)
+    
+    return tasks_for_plotting
 
 def create_and_visualize_task_graph(nodes):
     """
@@ -287,172 +290,6 @@ def create_and_visualize_task_graph(nodes):
     plt.axis('off')
     return plt.gcf()
 
-def migrate_tasks(nodes, T_max, core_powers=[1, 2, 4], cloud_sending_power=0.5):
-    """
-    Enhanced task migration algorithm focusing on energy reduction through cloud offloading
-    while maintaining timing constraints.
-    """
-    best_nodes = deepcopy(nodes)
-    best_energy = total_energy(nodes, core_powers, cloud_sending_power)
-    best_time = total_time(nodes)
-    
-    # First try to migrate most energy-intensive tasks to cloud
-    energy_savings = []
-    for node in nodes:
-        if node.is_core:
-            # Calculate current energy consumption
-            current_energy = core_powers[node.assignment] * node.core_speed[node.assignment]
-            # Calculate potential cloud energy consumption
-            cloud_energy = cloud_sending_power * cloud_speed[0]
-            
-            energy_savings.append((
-                node,
-                current_energy - cloud_energy,
-                node.core_speed[node.assignment]
-            ))
-    
-    # Sort tasks by potential energy savings
-    energy_savings.sort(key=lambda x: (x[1], x[2]), reverse=True)
-    
-    # Try migrating tasks in order of potential energy savings
-    for task, saving, _ in energy_savings:
-        if saving <= 0:
-            continue
-            
-        original_assignment = task.assignment
-        original_is_core = task.is_core
-        
-        # Try migrating to cloud
-        task.assignment = 3
-        task.is_core = False
-        
-        # Reschedule with new assignment
-        new_schedule = kernel_algorithm(nodes)
-        if new_schedule is not None:
-            new_time = total_time(nodes)
-            new_energy = total_energy(nodes, core_powers, cloud_sending_power)
-            
-            if new_time <= T_max and new_energy < best_energy:
-                best_nodes = deepcopy(nodes)
-                best_energy = new_energy
-                best_time = new_time
-            else:
-                # Revert changes
-                task.assignment = original_assignment
-                task.is_core = original_is_core
-    
-    # Apply best schedule found
-    for i, node in enumerate(nodes):
-        node.assignment = best_nodes[i].assignment
-        node.is_core = best_nodes[i].is_core
-        
-    # Final rescheduling with best assignments
-    kernel_algorithm(nodes)
-    
-    return nodes, best_energy, best_time
-
-def kernel_algorithm(nodes):
-    """
-    Enhanced kernel algorithm with improved cloud scheduling strategy
-    """
-    cloud_tasks = []
-    core_tasks = [[] for _ in range(3)]
-    
-    # Separate cloud and core tasks
-    for node in nodes:
-        if node.is_core:
-            core_tasks[node.assignment].append(node)
-        else:
-            cloud_tasks.append(node)
-    
-    # Initialize timing
-    current_time = 0
-    cloud_send_time = 0
-    
-    # Schedule cloud tasks first
-    for task in sorted(cloud_tasks, key=lambda x: len(x.parents)):
-        # Calculate earliest possible start time
-        start_time = cloud_send_time
-        for parent in task.parents:
-            if parent.is_core:
-                start_time = max(start_time, parent.local_finish_time)
-            else:
-                start_time = max(start_time, parent.cloud_receiving_finish_time)
-        
-        # Set cloud execution times
-        task.cloud_sending_ready_time = start_time
-        task.cloud_sending_finish_time = start_time + cloud_speed[0]
-        task.cloud_ready_time = task.cloud_sending_finish_time
-        task.cloud_finish_time = task.cloud_ready_time + cloud_speed[1]
-        task.cloud_receiving_finish_time = task.cloud_finish_time + cloud_speed[2]
-        
-        cloud_send_time = task.cloud_sending_finish_time
-    
-    # Schedule core tasks
-    core_times = [0] * 3
-    for core_idx, core_task_list in enumerate(core_tasks):
-        current_time = 0
-        for task in sorted(core_task_list, key=lambda x: len(x.parents)):
-            # Calculate earliest possible start time
-            start_time = current_time
-            for parent in task.parents:
-                if parent.is_core:
-                    start_time = max(start_time, parent.local_finish_time)
-                else:
-                    start_time = max(start_time, parent.cloud_receiving_finish_time)
-            
-            # Set local execution times
-            task.local_ready_time = start_time
-            task.local_finish_time = start_time + task.core_speed[core_idx]
-            current_time = task.local_finish_time
-            core_times[core_idx] = current_time
-    
-    return True
-
-# Update validate_schedule function to handle cloud execution better
-def validate_schedule(nodes):
-    """
-    Enhanced schedule validation with specific cloud execution checks
-    """
-    # Check precedence constraints
-    for node in nodes:
-        if node.is_core:
-            start_time = node.local_ready_time
-            finish_time = node.local_finish_time
-        else:
-            start_time = node.cloud_sending_ready_time
-            finish_time = node.cloud_receiving_finish_time
-            
-        for parent in node.parents:
-            parent_finish = parent.cloud_receiving_finish_time if not parent.is_core else parent.local_finish_time
-            if start_time < parent_finish:
-                return False
-    
-    # Check resource conflicts
-    cloud_send_times = []
-    cloud_receive_times = []
-    core_times = [[] for _ in range(3)]
-    
-    for node in nodes:
-        if node.is_core:
-            times = core_times[node.assignment]
-            times.append((node.local_ready_time, node.local_finish_time))
-        else:
-            cloud_send_times.append((node.cloud_sending_ready_time, node.cloud_sending_finish_time))
-            cloud_receive_times.append((
-                node.cloud_finish_time,
-                node.cloud_receiving_finish_time
-            ))
-    
-    # Check for overlaps in all resource usage
-    for times in [*core_times, cloud_send_times, cloud_receive_times]:
-        times.sort()
-        for i in range(1, len(times)):
-            if times[i][0] < times[i-1][1]:
-                return False
-    
-    return True
-
 if __name__ == "__main__":
     # Initialize task graph
     node10 = Node(10)
@@ -465,7 +302,8 @@ if __name__ == "__main__":
     node3 = Node(3, children=[node7])
     node2 = Node(2, children=[node8, node9])
     node1 = Node(1, children=[node2, node3, node4, node5, node6])
-
+    
+    # Set up parent relationships
     node10.parents = [node7, node8, node9]
     node9.parents = [node2, node4, node5]
     node8.parents = [node2, node4, node6]
@@ -476,40 +314,32 @@ if __name__ == "__main__":
     node3.parents = [node1]
     node2.parents = [node1]
     node1.parents = []
-
     nodes = [node1, node2, node3, node4, node5, node6, node7, node8, node9, node10]
 
-    fig = fig = create_and_visualize_task_graph(nodes)
-    plt.savefig('task_graph.png', bbox_inches='tight', dpi=300)
-    plt.close()
+    # Define system parameters
+    core_powers = [1, 2, 4]  # Power consumption of cores 1, 2, and 3
+    cloud_sending_power = 0.5  # Power consumption for sending data to cloud
 
-    # Step One: Initial Scheduling Algorithm
-    print("\nRunning Initial Scheduling...")
+    print("\n=== Step One: Initial Scheduling ===")
+    # Execute the three phases of initial scheduling
+    print("\nPhase 1: Primary Assignment...")
     core_earliest_ready = [0, 0, 0]
     cloud_earliest_ready = 0
-    
     primary_assignment(nodes, core_earliest_ready, cloud_earliest_ready)
+    print("Phase 2: Task Prioritizing...")
     task_prioritizing(nodes)
-    sequences = execution_unit_selection(nodes)
-    
-    initial_time = total_time(nodes)
-    initial_energy = total_energy(nodes, core_powers=[1, 2, 4], cloud_sending_power=0.5)
-    
-    print(f"Initial Schedule Results:")
-    print(f"INITIAL TIME: {initial_time}")
-    print(f"INITIAL ENERGY: {initial_energy}")
-    print("\nInitial Schedule Details:")
-    log_task_details(nodes)
+    print("Phase 3: Execution Unit Selection...")
+    sequence = execution_unit_selection(nodes)
 
-    # Step Two: Task Migration
-    print("\nRunning Task Migration...")
-    T_max = initial_time * 1.5  # Allow 50% increase in completion time
-    
-    migrated_nodes, final_energy, final_time = migrate_tasks(nodes, T_max)
-    
-    print(f"\nFinal Schedule Results:")
-    print(f"FINAL TIME: {final_time}")
-    print(f"FINAL ENERGY: {final_energy}")
+    #Total time and energy at the end of initial scheduling 
+    T_init_pre_kernel = total_time(nodes)
+    T_init= T_init_pre_kernel
+    E_init_pre_kernel = total_energy(nodes, core_powers, cloud_sending_power)
+    E_init= E_init_pre_kernel
+    print("INITIAL TIME: ", T_init_pre_kernel)
+    print("INITIAL ENERGY:", E_init_pre_kernel)
 
-    print("\nFinal Schedule Details:")
-    log_task_details(migrated_nodes)
+    tasksForPlotting = log_task_details(nodes)
+    
+    for task in tasksForPlotting:
+        print(task)
