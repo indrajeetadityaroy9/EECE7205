@@ -303,39 +303,31 @@ def kernel_rescheduling(nodes, sequences):
             return False
     return True
 
-
 if __name__ == "__main__":
-    # Initialize task graph
+    # Initialize task graph with correct parents and children
     node10 = Node(10)
-    node9 = Node(9)
-    node8 = Node(8)
-    node7 = Node(7)
-    node6 = Node(6)
-    node5 = Node(5)
-    node4 = Node(4)
-    node3 = Node(3)
-    node2 = Node(2)
-    node1 = Node(1)
-    # Set parents and children
-    node1.children = [node2, node3, node4, node5, node6]
-    node2.parents = [node1]
-    node2.children = [node8, node9]
-    node3.parents = [node1]
-    node3.children = [node7]
-    node4.parents = [node1]
-    node4.children = [node8, node9]
-    node5.parents = [node1]
-    node5.children = [node9]
-    node6.parents = [node1]
-    node6.children = [node8]
-    node7.parents = [node3]
-    node7.children = [node10]
-    node8.parents = [node2, node4, node6]
-    node8.children = [node10]
-    node9.parents = [node2, node4, node5]
-    node9.children = [node10]
+    node9 = Node(9, children=[node10])
+    node8 = Node(8, children=[node10])
+    node7 = Node(7, children=[node10])
+    node6 = Node(6, children=[node8])
+    node5 = Node(5, children=[node9])
+    node4 = Node(4, children=[node8, node9])
+    node3 = Node(3, children=[node7])
+    node2 = Node(2, children=[node8, node9])
+    node1 = Node(1, children=[node2, node3, node4, node5, node6])
     node10.parents = [node7, node8, node9]
+    node9.parents = [node2, node4, node5]
+    node8.parents = [node2, node4, node6]
+    node7.parents = [node3]
+    node6.parents = [node1]
+    node5.parents = [node1]
+    node4.parents = [node1]
+    node3.parents = [node1]
+    node2.parents = [node1]
+    node1.parents = []
+
     nodes = [node1, node2, node3, node4, node5, node6, node7, node8, node9, node10]
+
     # Initial Scheduling
     primary_assignment(nodes)
     task_prioritizing(nodes)
@@ -343,13 +335,20 @@ if __name__ == "__main__":
     initial_time = total_time(nodes)
     initial_energy = total_energy(nodes, core_powers=[1, 2, 4], cloud_sending_power=0.5)
 
-    # Prepare final schedule
-    final_schedule = []
+    # Prepare initial schedule details
+    initial_schedule = []
     for node in nodes:
-        if not node.is_core:
-            final_schedule.append({
+        if node.is_core:
+            initial_schedule.append({
                 'node id': node.task_id,
-                'assignment': 4,
+                'assignment': node.assignment + 1,  # Assuming core indices start from 1
+                'local_start_time': node.local_ready_time,
+                'local_finish_time': node.local_finish_time,
+            })
+        else:
+            initial_schedule.append({
+                'node id': node.task_id,
+                'assignment': 4,  # Cloud assignment
                 'ws_start_time': node.cloud_sending_ready_time,
                 'ws_finish_time': node.cloud_sending_finish_time,
                 'cloud_start_time': node.cloud_ready_time,
@@ -357,20 +356,11 @@ if __name__ == "__main__":
                 'wr_start_time': node.cloud_finish_time,
                 'wr_finish_time': node.cloud_receiving_finish_time,
             })
-        else:
-            final_schedule.append({
-                'node id': node.task_id,
-                'assignment': node.assignment + 1,
-                'local_start_time': node.local_ready_time,
-                'local_finish_time': node.local_finish_time,
-            })
+    initial_schedule.sort(key=lambda x: x['node id'])
 
-    final_schedule.sort(key=lambda x: x['node id'])
-
-    # Print final results
-    print(f"INITIAL TIME: {int(initial_time)}")
-    print(f"INITIAL ENERGY: {initial_energy}")
-    for detail in final_schedule:
+    # Print initial schedule details
+    print("Initial Schedule Details:")
+    for detail in initial_schedule:
         print(detail)
 
     # Task Migration
@@ -378,13 +368,21 @@ if __name__ == "__main__":
     sequences, final_time, final_energy = task_migration_algorithm(
         nodes, sequences, initial_time, initial_energy, T_max
     )
-    # Prepare final schedule
+
+    # Prepare final schedule details
     final_schedule = []
     for node in nodes:
-        if not node.is_core:
+        if node.is_core:
             final_schedule.append({
                 'node id': node.task_id,
-                'assignment': 4,
+                'assignment': node.assignment + 1,  # Assuming core indices start from 1
+                'local_start_time': node.local_ready_time,
+                'local_finish_time': node.local_finish_time,
+            })
+        else:
+            final_schedule.append({
+                'node id': node.task_id,
+                'assignment': 4,  # Cloud assignment
                 'ws_start_time': node.cloud_sending_ready_time,
                 'ws_finish_time': node.cloud_sending_finish_time,
                 'cloud_start_time': node.cloud_ready_time,
@@ -392,16 +390,11 @@ if __name__ == "__main__":
                 'wr_start_time': node.cloud_finish_time,
                 'wr_finish_time': node.cloud_receiving_finish_time,
             })
-        else:
-            final_schedule.append({
-                'node id': node.task_id,
-                'assignment': node.assignment + 1,
-                'local_start_time': node.local_ready_time,
-                'local_finish_time': node.local_finish_time,
-            })
     final_schedule.sort(key=lambda x: x['node id'])
-    # Print final results
-    print(f"FINAL TIME: {int(final_time)}")
+
+    # Print final schedule details
+    print(f"\nFINAL TIME: {int(final_time)}")
     print(f"FINAL ENERGY: {final_energy}")
+    print("Final Schedule Details:")
     for detail in final_schedule:
         print(detail)
