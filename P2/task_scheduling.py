@@ -28,13 +28,13 @@ class Node:
         self.task_id = task_id
         self.parents = parents or []
         self.children = children or []
-        self.local_finish_time = 0
+        self.local_compute_finish_time = 0
         self.cloud_sending_finish_time = 0
-        self.cloud_finish_time = 0
+        self.cloud_compute_finish_time = 0
         self.cloud_receiving_finish_time = 0
-        self.local_ready_time = -1
+        self.local_compute_ready_time = -1
         self.cloud_sending_ready_time = -1
-        self.cloud_ready_time = -1
+        self.cloud_compute_ready_time = -1
         self.priority_score = None
         self.assignment = -2  # -2=not assigned, 0-2=cores, 3=cloud
         self.is_core = False
@@ -42,19 +42,16 @@ class Node:
         self.core_speed = task_core_values[task_id]
         self.cloud_speed = cloud_speed
         self.cloud_execution_time = sum(cloud_speed)
-        self.execution_unit = None  # 'core' or 'cloud'
-        self.start_time = 0
-        self.finish_time = 0
 
 def calculate_earliest_start_time(node):
     if not node.parents:
         return 0, 0
     local_ready = max(
-        max(parent.local_finish_time, parent.cloud_receiving_finish_time)
+        max(parent.local_compute_finish_time, parent.cloud_receiving_finish_time)
         for parent in node.parents
     )
     cloud_ready = max(
-        max(parent.local_finish_time, parent.cloud_sending_finish_time)
+        max(parent.local_compute_finish_time, parent.cloud_sending_finish_time)
         for parent in node.parents
     )
     return local_ready, cloud_ready
@@ -128,8 +125,8 @@ def execution_unit_selection(nodes):
         if is_core:
             node.is_core = True
             node.assignment = unit
-            node.local_ready_time = start_time
-            node.local_finish_time = finish_time
+            node.local_compute_ready_time = start_time
+            node.local_compute_finish_time = finish_time
             core_available_times[unit] = finish_time
             sequences[unit].append(node)  # Store Node objects
         else:
@@ -137,9 +134,9 @@ def execution_unit_selection(nodes):
             node.assignment = 3
             node.cloud_sending_ready_time = start_time
             node.cloud_sending_finish_time = start_time + node.cloud_speed[0]
-            node.cloud_ready_time = node.cloud_sending_finish_time
-            node.cloud_finish_time = node.cloud_ready_time + node.cloud_speed[1]
-            node.cloud_receiving_finish_time = node.cloud_finish_time + node.cloud_speed[2]
+            node.cloud_compute_ready_time = node.cloud_sending_finish_time
+            node.cloud_compute_finish_time = node.cloud_compute_ready_time + node.cloud_speed[1]
+            node.cloud_receiving_finish_time = node.cloud_compute_finish_time + node.cloud_speed[2]
             ws_channel_available_time = node.cloud_sending_finish_time
             sequences[3].append(node)  # Store Node objects
     return sequences
@@ -170,7 +167,7 @@ def total_time(nodes):
     Implementation of equation (10) from the paper
     """
     return max(
-        max(node.local_finish_time, node.cloud_receiving_finish_time)
+        max(node.local_compute_finish_time, node.cloud_receiving_finish_time)
         for node in nodes
         if not node.children  # Only consider exit tasks
     )
@@ -190,7 +187,7 @@ def task_migration_algorithm(nodes, sequences, initial_time, initial_energy, T_m
         for task in local_tasks:
             original_assignment = task.assignment
             original_is_core = task.is_core
-            original_times = (task.local_ready_time, task.local_finish_time)
+            original_times = (task.local_compute_ready_time, task.local_compute_finish_time)
             # Remove task from current sequence
             sequences[task.assignment].remove(task)
             # Migrate task to cloud
@@ -217,7 +214,7 @@ def task_migration_algorithm(nodes, sequences, initial_time, initial_energy, T_m
             sequences[3].remove(task)
             task.is_core = original_is_core
             task.assignment = original_assignment
-            task.local_ready_time, task.local_finish_time = original_times
+            task.local_compute_ready_time, task.local_compute_finish_time = original_times
             sequences[original_assignment].append(task)
             kernel_rescheduling(nodes, sequences)
         if best_task_to_migrate:
@@ -250,12 +247,12 @@ def kernel_rescheduling(nodes, sequences):
     ws_channel_available_time = 0
     # Reset task times
     for node in nodes:
-        node.local_ready_time = -1
-        node.local_finish_time = -1
+        node.local_compute_ready_time = -1
+        node.local_compute_finish_time = -1
         node.cloud_sending_ready_time = -1
         node.cloud_sending_finish_time = -1
-        node.cloud_ready_time = -1
-        node.cloud_finish_time = -1
+        node.cloud_compute_ready_time = -1
+        node.cloud_compute_finish_time = -1
         node.cloud_receiving_finish_time = -1
     scheduled_tasks = set()
     total_tasks = len(nodes)
@@ -270,11 +267,11 @@ def kernel_rescheduling(nodes, sequences):
                 if all(parent.task_id in scheduled_tasks for parent in node.parents):
                     if node.parents:
                         local_ready = max(
-                            max(parent.local_finish_time, parent.cloud_receiving_finish_time)
+                            max(parent.local_compute_finish_time, parent.cloud_receiving_finish_time)
                             for parent in node.parents
                         )
                         cloud_ready = max(
-                            max(parent.local_finish_time, parent.cloud_sending_finish_time)
+                            max(parent.local_compute_finish_time, parent.cloud_sending_finish_time)
                             for parent in node.parents
                         )
                     else:
@@ -285,17 +282,17 @@ def kernel_rescheduling(nodes, sequences):
                         start_time = max(cloud_ready, ws_channel_available_time)
                         node.cloud_sending_ready_time = start_time
                         node.cloud_sending_finish_time = start_time + node.cloud_speed[0]
-                        node.cloud_ready_time = node.cloud_sending_finish_time
-                        node.cloud_finish_time = node.cloud_ready_time + node.cloud_speed[1]
-                        node.cloud_receiving_finish_time = node.cloud_finish_time + node.cloud_speed[2]
+                        node.cloud_compute_ready_time = node.cloud_sending_finish_time
+                        node.cloud_compute_finish_time = node.cloud_compute_ready_time + node.cloud_speed[1]
+                        node.cloud_receiving_finish_time = node.cloud_compute_finish_time + node.cloud_speed[2]
                         ws_channel_available_time = node.cloud_sending_finish_time
                     else:
                         # Core task
                         core = k
                         start_time = max(local_ready, core_available_times[core])
-                        node.local_ready_time = start_time
-                        node.local_finish_time = start_time + node.core_speed[core]
-                        core_available_times[core] = node.local_finish_time
+                        node.local_compute_ready_time = start_time
+                        node.local_compute_finish_time = start_time + node.core_speed[core]
+                        core_available_times[core] = node.local_compute_finish_time
                     scheduled_tasks.add(node.task_id)
                     progress_made = True
         if not progress_made:
@@ -340,23 +337,23 @@ if __name__ == "__main__":
     for node in nodes:
         if node.is_core:
             initial_schedule.append({
-                'node id': node.task_id,
+                'task id': node.task_id,
                 'assignment': node.assignment + 1,  # Assuming core indices start from 1
-                'local_start_time': node.local_ready_time,
-                'local_finish_time': node.local_finish_time,
+                'local start time': node.local_compute_ready_time,
+                'local compute finish time': node.local_compute_finish_time,
             })
         else:
             initial_schedule.append({
-                'node id': node.task_id,
+                'task id': node.task_id,
                 'assignment': 4,  # Cloud assignment
-                'ws_start_time': node.cloud_sending_ready_time,
-                'ws_finish_time': node.cloud_sending_finish_time,
-                'cloud_start_time': node.cloud_ready_time,
-                'cloud_finish_time': node.cloud_finish_time,
-                'wr_start_time': node.cloud_finish_time,
-                'wr_finish_time': node.cloud_receiving_finish_time,
+                'cloud send start time': node.cloud_sending_ready_time,
+                'cloud send finish time': node.cloud_sending_finish_time,
+                'cloud compute start time': node.cloud_compute_ready_time,
+                'cloud compute finish time': node.cloud_compute_finish_time,
+                'cloud recieve start time': node.cloud_compute_finish_time,
+                'cloud recieve finish time': node.cloud_receiving_finish_time,
             })
-    initial_schedule.sort(key=lambda x: x['node id'])
+    initial_schedule.sort(key=lambda x: x['task id'])
 
     # Print initial schedule details
     print("Initial Schedule Details:")
@@ -376,19 +373,19 @@ if __name__ == "__main__":
             final_schedule.append({
                 'node id': node.task_id,
                 'assignment': node.assignment + 1,  # Assuming core indices start from 1
-                'local_start_time': node.local_ready_time,
-                'local_finish_time': node.local_finish_time,
+                'local start_time': node.local_compute_ready_time,
+                'local finish_time': node.local_compute_finish_time,
             })
         else:
             final_schedule.append({
                 'node id': node.task_id,
                 'assignment': 4,  # Cloud assignment
-                'ws_start_time': node.cloud_sending_ready_time,
-                'ws_finish_time': node.cloud_sending_finish_time,
-                'cloud_start_time': node.cloud_ready_time,
-                'cloud_finish_time': node.cloud_finish_time,
-                'wr_start_time': node.cloud_finish_time,
-                'wr_finish_time': node.cloud_receiving_finish_time,
+                'ws start_time': node.cloud_sending_ready_time,
+                'ws finish_time': node.cloud_sending_finish_time,
+                'cloud start_time': node.cloud_compute_ready_time,
+                'cloud compute_finish_time': node.cloud_compute_finish_time,
+                'wr start_time': node.cloud_compute_finish_time,
+                'wr finish_time': node.cloud_receiving_finish_time,
             })
     final_schedule.sort(key=lambda x: x['node id'])
 
