@@ -371,12 +371,12 @@ if __name__ == "__main__":
             final_schedule.append({
                 'task id': node.task_id,
                 'assignment': 4,  # Cloud assignment
-                'cloud send start time': node.cloud_sending_ready_time,
-                'cloud send finish time': node.cloud_sending_finish_time,
+                'send phase start time': node.cloud_sending_ready_time,
+                'send phase finish time': node.cloud_sending_finish_time,
                 'cloud compute start time': node.cloud_compute_ready_time,
                 'cloud compute finish time': node.cloud_compute_finish_time,
-                'cloud recieve start time': node.cloud_compute_finish_time,
-                'cloud recieve finish time': node.cloud_receiving_finish_time,
+                'recieve phase start time': node.cloud_compute_finish_time,
+                'recieve phase finish time': node.cloud_receiving_finish_time,
             })
     final_schedule.sort(key=lambda x: x['task id'])
 
