@@ -1,12 +1,3 @@
-import matplotlib.pyplot as plt
-import networkx as nx
-import numpy as np
-from collections import defaultdict
-from copy import deepcopy
-import time
-import sys
-import copy
-
 # Define task execution times on cores and cloud
 task_core_values = {
     1: [9, 7, 5],
@@ -338,7 +329,7 @@ if __name__ == "__main__":
         if node.is_core:
             initial_schedule.append({
                 'task id': node.task_id,
-                'assignment': node.assignment + 1,  # Assuming core indices start from 1
+                'assignment': node.assignment + 1,  # core indices start from 1
                 'local start time': node.local_compute_ready_time,
                 'local compute finish time': node.local_compute_finish_time,
             })
@@ -371,23 +362,23 @@ if __name__ == "__main__":
     for node in nodes:
         if node.is_core:
             final_schedule.append({
-                'node id': node.task_id,
-                'assignment': node.assignment + 1,  # Assuming core indices start from 1
-                'local start_time': node.local_compute_ready_time,
-                'local finish_time': node.local_compute_finish_time,
+                'task id': node.task_id,
+                'assignment': node.assignment + 1,  # core indices start from 1
+                'local start time': node.local_compute_ready_time,
+                'local compute finish time': node.local_compute_finish_time,
             })
         else:
             final_schedule.append({
-                'node id': node.task_id,
+                'task id': node.task_id,
                 'assignment': 4,  # Cloud assignment
-                'ws start_time': node.cloud_sending_ready_time,
-                'ws finish_time': node.cloud_sending_finish_time,
-                'cloud start_time': node.cloud_compute_ready_time,
-                'cloud compute_finish_time': node.cloud_compute_finish_time,
-                'wr start_time': node.cloud_compute_finish_time,
-                'wr finish_time': node.cloud_receiving_finish_time,
+                'cloud send start time': node.cloud_sending_ready_time,
+                'cloud send finish time': node.cloud_sending_finish_time,
+                'cloud compute start time': node.cloud_compute_ready_time,
+                'cloud compute finish time': node.cloud_compute_finish_time,
+                'cloud recieve start time': node.cloud_compute_finish_time,
+                'cloud recieve finish time': node.cloud_receiving_finish_time,
             })
-    final_schedule.sort(key=lambda x: x['node id'])
+    final_schedule.sort(key=lambda x: x['task id'])
 
     # Print final schedule details
     print(f"\nFINAL TIME: {int(final_time)}")
