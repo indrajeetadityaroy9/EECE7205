@@ -78,10 +78,8 @@ def primary_assignment(nodes):
     for node in nodes:
         # Calculate minimum local execution time
         t_l_min = min(node.core_speed)
-        
         # Calculate total remote execution time
         t_re = (node.cloud_speed[0] + node.cloud_speed[1] + node.cloud_speed[2])
-        
         # If remote execution is faster, assign to cloud
         if t_re < t_l_min:
             node.is_core = False  # Assign to cloud
@@ -90,7 +88,6 @@ def primary_assignment(nodes):
 
 def task_prioritizing(nodes):
     w = [0] * len(nodes)
-
     # Calculate computation costs (wi)
     for i, node in enumerate(nodes):
         if not node.is_core:  # Cloud task
@@ -106,13 +103,11 @@ def task_prioritizing(nodes):
         # Check if already calculated
         if task.id in priority_cache:
             return priority_cache[task.id]
-
         # Base case: exit task
         # Equation (16): priority(vi) = wi for exit tasks
         if task.children == []:
             priority_cache[task.id] = w[task.id - 1]
             return w[task.id - 1]
-
         # Recursive case: Equation (15)
         # priority(vi) = wi + max(vj∈succ(vi)) priority(vj)
         max_successor_priority = max(calculate_priority(successor) for successor in task.children)
@@ -391,7 +386,6 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
     def evaluate_migration(nodes, seqs, node_idx, target_resource):
         """
         Evaluates migration with caching to avoid redundant calculations.
-        Uses numpy for faster numerical operations.
         """
         cache_key = get_cache_key(node_idx, target_resource)
         if cache_key in migration_cache:
@@ -421,13 +415,12 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
                 
         return choices
 
-    def find_best_migration(migration_results, T_init, E_init, T_max_constraint):
-    
+    def find_best_migration(migration_trials_results, T_init, E_init, T_max_constraint):
         # Step 1: Look for migrations that reduce energy without increasing time
         best_energy_reduction = 0
         best_migration = None
     
-        for node_idx, resource_idx, time, energy in migration_results:
+        for node_idx, resource_idx, time, energy in migration_trials_results:
             # Skip if time constraint violated
             if time > T_max_constraint:
                 continue
@@ -454,7 +447,7 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
     
         # Step 2: If no energy-reducing migrations found, look for best efficiency ratio
         candidates = []
-        for node_idx, resource_idx, time, energy in migration_results:
+        for node_idx, resource_idx, time, energy in migration_trials_results:
             # Skip if time constraint violated
             if time > T_max_constraint:
                 continue
@@ -497,18 +490,18 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
         # Initialize possible migration choices
         migeff_ratio_choice = initialize_migration_choices(nodes)
         # Evaluate all possible migrations
-        migration_results = []
+        migration_trials_results = []
         for node_idx in range(len(nodes)):
             for target_location in range(4):  # 0-3 for cloud and local cores
                 if migeff_ratio_choice[node_idx, target_location]:
                     continue
                     
-                trial_time, trial_energy = evaluate_migration(nodes, sequence, node_idx, target_location)
-                migration_results.append((node_idx, target_location, trial_time, trial_energy))
+                migration_trial_time, migration_trial_energy = evaluate_migration(nodes, sequence, node_idx, target_location)
+                migration_trials_results.append((node_idx, target_location, migration_trial_time, migration_trial_energy))
         
         # Find the best migration according to paper's criteria
         best_migration = find_best_migration(
-            migration_results=migration_results,
+            migration_trials_results=migration_trials_results,
             T_init=current_time,
             E_init=previous_energy,
             T_max_constraint=T_max_constraint
