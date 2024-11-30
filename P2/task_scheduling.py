@@ -446,7 +446,7 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
             )
     
         # Step 2: If no energy-reducing migrations found, look for best efficiency ratio
-        candidates = []
+        migration_candidates = []
         for node_idx, resource_idx, time, energy in migration_trials_results:
             # Skip if time constraint violated
             if time > T_max_constraint:
@@ -462,12 +462,12 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
                 else:
                     efficiency_ratio = energy_reduction / time_increase
             
-                heappush(candidates, (-efficiency_ratio, node_idx, resource_idx, time, energy))
+                heappush(migration_candidates, (-efficiency_ratio, node_idx, resource_idx, time, energy))
     
-        if not candidates:
+        if not migration_candidates:
             return None
         
-        neg_ratio, n_best, k_best, T_best, E_best = heappop(candidates)
+        neg_ratio, n_best, k_best, T_best, E_best = heappop(migration_candidates)
         return OptimizationState(
             time=T_best, 
             energy=E_best,
