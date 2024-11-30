@@ -61,8 +61,7 @@ class Node(object):
 
 def total_time(nodes):
     return max(
-        max(node.local_finish_time, node.wireless_recieving_finish_time)
-        for node in nodes
+        max(node.local_finish_time, node.wireless_recieving_finish_time) for node in nodes
         if not node.children
     )
 
@@ -73,7 +72,7 @@ def calculate_energy_consumption(node, core_powers, cloud_sending_power):
         return cloud_sending_power * node.cloud_speed[0]
 
 def total_energy(nodes, core_powers, cloud_sending_power):
-    return sum(calculate_energy_consumption(node, core_powers, cloud_sending_power)  for node in nodes)
+    return sum(calculate_energy_consumption(node, core_powers, cloud_sending_power) for node in nodes)
 
 def primary_assignment(nodes):
     for node in nodes:
@@ -81,9 +80,7 @@ def primary_assignment(nodes):
         t_l_min = min(node.core_speed)
         
         # Calculate total remote execution time
-        t_re = (node.cloud_speed[0] +    # Ts_i (sending time)
-                node.cloud_speed[1] +     # Tc_i (cloud computation time)
-                node.cloud_speed[2])      # Tr_i (receiving time)
+        t_re = (node.cloud_speed[0] + node.cloud_speed[1] + node.cloud_speed[2])
         
         # If remote execution is faster, assign to cloud
         if t_re < t_l_min:
@@ -92,16 +89,13 @@ def primary_assignment(nodes):
             node.is_core = True   # Assign to local core
 
 def task_prioritizing(nodes):
-    n = len(nodes)
-    w = [0] * n
+    w = [0] * len(nodes)
 
     # Calculate computation costs (wi)
     for i, node in enumerate(nodes):
         if not node.is_core:  # Cloud task
             # Equation (13): wi = Tre_i for cloud tasks
-            w[i] = (node.cloud_speed[0] +     # Ts_i
-                   node.cloud_speed[1] +      # Tc_i
-                   node.cloud_speed[2])       # Tr_i
+            w[i] = (node.cloud_speed[0] +  node.cloud_speed[1] + node.cloud_speed[2])
         else:  # Local task
             # Equation (14): wi = avg(1≤k≤K) Tl,k_i for local tasks
             w[i] = sum(node.core_speed) / len(node.core_speed)
@@ -121,10 +115,8 @@ def task_prioritizing(nodes):
 
         # Recursive case: Equation (15)
         # priority(vi) = wi + max(vj∈succ(vi)) priority(vj)
-        max_successor_priority = max(calculate_priority(successor) 
-                                   for successor in task.children)
+        max_successor_priority = max(calculate_priority(successor) for successor in task.children)
         task_priority = w[task.id - 1] + max_successor_priority
-
         priority_cache[task.id] = task_priority
         return task_priority
 
@@ -156,30 +148,25 @@ def execution_unit_selection(nodes):
             min_load_core = core_earliest_ready.index(min(core_earliest_ready))
             node.local_ready_time = core_earliest_ready[min_load_core]
             node.wireless_sending_ready_time = core_earliest_ready[min_load_core]
-            node.wireless_sending_finish_time = (
-                node.wireless_sending_ready_time + 
-                node.cloud_speed[0]
-            )
+            node.wireless_sending_finish_time = ( node.wireless_sending_ready_time + node.cloud_speed[0] )
             node.cloud_ready_time = node.wireless_sending_finish_time
             
         else:  # Tasks with parents
             # Equation (3): Local ready time
             node.local_ready_time = max(
-                max(max(parent.local_finish_time, parent.wireless_recieving_finish_time) 
-                    for parent in node.parents),
+                max(max(parent.local_finish_time, parent.wireless_recieving_finish_time) for parent in node.parents),
                 0
             )
             
             # Equation (4): Wireless sending ready time
             node.wireless_sending_ready_time = max(
-                max(max(parent.local_finish_time, parent.wireless_sending_finish_time)
-                    for parent in node.parents), 0
+                max(max(parent.local_finish_time, parent.wireless_sending_finish_time) for parent in node.parents), 
+                0
             )
             
             # Calculate wireless sending finish time
             node.wireless_sending_finish_time = (
-                max(node.wireless_sending_ready_time, core_earliest_ready[k]) + 
-                node.cloud_speed[0]
+                max(node.wireless_sending_ready_time, core_earliest_ready[k]) + node.cloud_speed[0]
             )
             
             # Equation (5): Cloud ready time
@@ -191,8 +178,7 @@ def execution_unit_selection(nodes):
         # Calculate cloud execution timings
         node.wireless_recieving_ready_time = node.cloud_ready_time + node.cloud_speed[1]
         node.wireless_recieving_finish_time = (
-            node.wireless_recieving_ready_time + 
-            node.cloud_speed[2]
+            node.wireless_recieving_ready_time + node.cloud_speed[2]
         )
         
         if not node.is_core:  # Initially assigned to cloud
@@ -255,10 +241,7 @@ def construct_sequence(nodes, targetNodeId, targetLocation, seq):
     # Step 5: Prepare the new sequence for insertion.
     new_sequence_nodes_list = seq[targetLocation]
     # Precompute start times for the new sequence's nodes.
-    start_times = [
-        node_id_to_node[node_id].start_time[targetLocation]
-        for node_id in new_sequence_nodes_list
-    ]
+    start_times = [ node_id_to_node[node_id].start_time[targetLocation] for node_id in new_sequence_nodes_list ]
     # Step 6: Use bisect to find the insertion index.
     insertion_index = bisect.bisect_left(start_times, target_node_rt)
     # Step 7: Insert the target node at the correct index.
@@ -270,29 +253,26 @@ def construct_sequence(nodes, targetNodeId, targetLocation, seq):
 
 def kernel_algorithm(nodes, sequences):
     def initialize_readiness_tracking(nodes, sequences):
-    # Initialize dependency_ready with the number of parent tasks for each node
+        # Initialize dependency_ready with the number of parent tasks for each node
         dependency_ready = [len(node.parents) for node in nodes]
     
-    # Initialize sequence_ready to -1 for all nodes
+        # Initialize sequence_ready to -1 for all nodes
         sequence_ready = [-1] * len(nodes)
     
-    # Mark first node in each sequence as ready in terms of sequence order
+        # Mark first node in each sequence as ready in terms of sequence order
         for sequence in sequences:
             if sequence:
                 sequence_ready[sequence[0] - 1] = 0
             else:
-            # Handle empty sequences if necessary
+                # Handle empty sequences if necessary
                 continue
             
         return dependency_ready, sequence_ready
 
-
     def update_node_readiness(node, nodes, sequences, dependency_ready, sequence_ready):
         if node.is_scheduled != "kernel_scheduled":
             # Update dependency readiness
-            dependency_ready[node.id - 1] = sum(1 for parent in node.parents 
-                                              if parent.is_scheduled != "kernel_scheduled")
-            
+            dependency_ready[node.id - 1] = sum(1 for parent in node.parents if parent.is_scheduled != "kernel_scheduled")
             # Update sequence readiness
             for sequence in sequences:
                 if node.id in sequence:
@@ -309,8 +289,7 @@ def kernel_algorithm(nodes, sequences):
         if not node.parents:
             node.local_ready_time = 0
         else:
-            parent_completion_times = (max(parent.local_finish_time, parent.wireless_recieving_finish_time) 
-                                    for parent in node.parents)
+            parent_completion_times = (max(parent.local_finish_time, parent.wireless_recieving_finish_time) for parent in node.parents)
             node.local_ready_time = max(parent_completion_times, default=0)
         
         # Schedule on assigned core
@@ -318,10 +297,8 @@ def kernel_algorithm(nodes, sequences):
         node.start_time = [-1] * 4
         node.start_time[core_index] = max(local_core_ready_times[core_index], node.local_ready_time)
         node.local_finish_time = node.start_time[core_index] + node.core_speed[core_index]
-        
         # Update core ready time
         local_core_ready_times[core_index] = node.local_finish_time
-        
         # Clear cloud-related timings
         node.wireless_sending_finish_time = node.cloud_finish_time = node.wireless_recieving_finish_time = -1
 
@@ -330,8 +307,7 @@ def kernel_algorithm(nodes, sequences):
         if not node.parents:
             node.wireless_sending_ready_time = 0
         else:
-            parent_completion_times = (max(parent.local_finish_time, parent.wireless_sending_finish_time) 
-                                    for parent in node.parents)
+            parent_completion_times = (max(parent.local_finish_time, parent.wireless_sending_finish_time) for parent in node.parents)
             node.wireless_sending_ready_time = max(parent_completion_times)
 
         # Initialize start times
@@ -352,8 +328,7 @@ def kernel_algorithm(nodes, sequences):
 
         # Schedule wireless receiving
         node.wireless_recieving_ready_time = node.cloud_finish_time
-        node.wireless_recieving_finish_time = (max(cloud_stage_ready_times[2], node.wireless_recieving_ready_time) 
-                                             + node.cloud_speed[2])
+        node.wireless_recieving_finish_time = (max(cloud_stage_ready_times[2], node.wireless_recieving_ready_time) + node.cloud_speed[2])
         cloud_stage_ready_times[2] = node.wireless_recieving_finish_time
         
         # Clear local timing
@@ -362,7 +337,6 @@ def kernel_algorithm(nodes, sequences):
     # Initialize timing trackers
     local_core_ready_times = [0] * 3
     cloud_stage_ready_times = [0] * 3
-    
     # Initialize readiness tracking
     dependency_ready, sequence_ready = initialize_readiness_tracking(nodes, sequences)
     
@@ -406,9 +380,7 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
     Optimized task scheduling algorithm using efficient data structures
     and memoization to reduce computational overhead.
     """
-    # Use numpy arrays for faster numerical operations
     core_powers = np.array(core_powers)
-    
     # Cache for storing evaluated migrations
     migration_cache = {}
     
@@ -439,8 +411,7 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
 
     def initialize_migration_choices(nodes):
         """Uses boolean array for efficient storage of migration choices"""
-        num_nodes = len(nodes)
-        choices = np.zeros((num_nodes, 4), dtype=bool)
+        choices = np.zeros((len(nodes), 4), dtype=bool)
         
         for i, node in enumerate(nodes):
             if node.assignment == 3:  # Cloud-assigned node
@@ -452,46 +423,46 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
 
     def find_best_migration(migration_results, T_init, E_init, T_max_constraint):
     
-    # Step 1: Look for migrations that reduce energy without increasing time
+        # Step 1: Look for migrations that reduce energy without increasing time
         best_energy_reduction = 0
         best_migration = None
     
         for node_idx, resource_idx, time, energy in migration_results:
-        # Skip if time constraint violated
+            # Skip if time constraint violated
             if time > T_max_constraint:
                 continue
             
-        # Calculate energy reduction
+            # Calculate energy reduction
             energy_reduction = E_init - energy
         
-        # Check if this migration reduces energy without increasing time
+            # Check if this migration reduces energy without increasing time
             if time <= T_init and energy_reduction > 0:
                 if energy_reduction > best_energy_reduction:
                     best_energy_reduction = energy_reduction
                     best_migration = (node_idx, resource_idx, time, energy)
     
-    # If we found a valid migration in Step 1, return it
+        # If we found a valid migration in Step 1, return it
         if best_migration:
             node_idx, resource_idx, time, energy = best_migration
             return OptimizationState(
-            time=time,
-            energy=energy,
-            efficiency_ratio=best_energy_reduction,
-            node_index=node_idx + 1,
-            target_resource=resource_idx + 1
+                time=time,
+                energy=energy,
+                efficiency_ratio=best_energy_reduction,
+                node_index=node_idx + 1,
+                target_resource=resource_idx + 1
             )
     
-    # Step 2: If no energy-reducing migrations found, look for best efficiency ratio
+        # Step 2: If no energy-reducing migrations found, look for best efficiency ratio
         candidates = []
         for node_idx, resource_idx, time, energy in migration_results:
-        # Skip if time constraint violated
+            # Skip if time constraint violated
             if time > T_max_constraint:
                 continue
             
-        # Calculate efficiency ratio only if there's energy reduction
+            # Calculate efficiency ratio only if there's energy reduction
             energy_reduction = E_init - energy
             if energy_reduction > 0:
-            # Calculate ratio of energy reduction to time increase
+                # Calculate ratio of energy reduction to time increase
                 time_increase = max(0, time - T_init)
                 if time_increase == 0:
                     efficiency_ratio = float('inf')  # Prioritize no time increase
@@ -505,30 +476,26 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
         
         neg_ratio, n_best, k_best, T_best, E_best = heappop(candidates)
         return OptimizationState(
-        time=T_best,
-        energy=E_best,
-        efficiency_ratio=-neg_ratio,
-        node_index=n_best + 1,
-        target_resource=k_best + 1
+            time=T_best, 
+            energy=E_best,
+            efficiency_ratio=-neg_ratio,
+            node_index=n_best + 1,
+            target_resource=k_best + 1
         )
 
     # Main optimization loop
 
     current_energy = total_energy(nodes, core_powers, cloud_sending_power)
-    
     # Continue as long as we can improve energy consumption
     energy_improved = True
     while energy_improved:
         # Store current energy as reference for this iteration
         previous_energy = current_energy
-        
         # Calculate current schedule metrics
         current_time = total_time(nodes)
         T_max_constraint = T_init_pre_kernel * 1.5
-        
         # Initialize possible migration choices
         migeff_ratio_choice = initialize_migration_choices(nodes)
-        
         # Evaluate all possible migrations
         migration_results = []
         for node_idx in range(len(nodes)):
@@ -536,8 +503,7 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
                 if migeff_ratio_choice[node_idx, target_location]:
                     continue
                     
-                trial_time, trial_energy = evaluate_migration(
-                    nodes, sequence, node_idx, target_location)
+                trial_time, trial_energy = evaluate_migration(nodes, sequence, node_idx, target_location)
                 migration_results.append((node_idx, target_location, trial_time, trial_energy))
         
         # Find the best migration according to paper's criteria
@@ -561,7 +527,6 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
             sequence
         )
         kernel_algorithm(nodes, sequence)
-        
         # Calculate new energy and determine if we improved
         current_energy = total_energy(nodes, core_powers, cloud_sending_power)
         energy_improved = current_energy < previous_energy
