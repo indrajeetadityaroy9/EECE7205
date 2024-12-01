@@ -31,18 +31,17 @@ core_execution_times = {
 cloud_execution_times = [3, 1, 1]  # T_send, T_cloud, T_receive
 
 class SchedulingState(Enum):
-    UNSCHEDULED = 0      # Represents None - task hasn't been scheduled yet
-    SCHEDULED = 1        # Represents the basic scheduled state
-    KERNEL_SCHEDULED = 2 # Represents scheduling done by kernel algorithm
+    UNSCHEDULED = 0      # Task hasn't been scheduled yet
+    SCHEDULED = 1        # Task has been initially scheduled
+    KERNEL_SCHEDULED = 2 # Task has been scheduled by the kernel algorithm
 
 @dataclass
-class OptimizationState:
-    """Maintains the state of optimization to avoid recalculations"""
-    time: float
-    energy: float
-    efficiency_ratio: float
-    node_index: int
-    target_resource: int
+class TaskMigrationState:
+    time: float                # Completion time after migration
+    energy: float              # Energy consumption after migration
+    efficiency_ratio: float    # Measure of migration effectiveness
+    node_index: int            # Which task is being migrated
+    target_execution_unit: int # Where the task is being migrated to
 
 class Task(object):
     def __init__(self, id, parents=None, children=None):
@@ -69,59 +68,94 @@ class Task(object):
         self.assignment = -2            # ki - execution location (local core or cloud)
         self.is_core_task = False      # Boolean flag for local vs cloud execution
         self.execution_unit_start_times = [-1,-1,-1,-1] # Start times for each possible execution unit
+        self.execution_finish_time = -1
         self.is_scheduled = SchedulingState.UNSCHEDULED # Current scheduling state
 
 def total_time(tasks):
+    # Find the finish time for each exit task (tasks with no children)
+    # and return the maximum among them
     return max(
-        max(task.local_core_finish_time, task.wireless_recieving_finish_time) for task in tasks
-        if not task.children
+        # For each exit task, take the later of:
+        # 1. When it finishes on a local core
+        # 2. When its results are received from the cloud
+        max(task.local_core_finish_time, task.wireless_recieving_finish_time) 
+        for task in tasks
+        if not task.children  # Only consider exit tasks
     )
 
 def calculate_energy_consumption(node, core_powers, cloud_sending_power):
+    # For tasks running on local cores
     if node.is_core_task:
+        # Energy = Power of chosen core × Execution time on that core
+        # This implements equation (7): Ei,k^l = Pk × Ti,k^l
         return core_powers[node.assignment] * node.core_execution_times[node.assignment]
+    # For tasks running in the cloud
     else:
+        # Energy = Power for sending × Time spent sending
+        # This implements equation (8): Ei^c = P^s × Ti^s
         return cloud_sending_power * node.cloud_execution_times[0]
 
 def total_energy(nodes, core_powers, cloud_sending_power):
-    return sum(calculate_energy_consumption(node, core_powers, cloud_sending_power) for node in nodes)
+    # Sum up energy consumption across all tasks
+    # This implements equation (9): E^total = ∑(i=1 to N) Ei
+    return sum(
+        calculate_energy_consumption(node, core_powers, cloud_sending_power) 
+        for node in nodes
+    )
 
 def primary_assignment(nodes):
     for node in nodes:
-        # Calculate minimum local execution time
+        # Calculate minimum local execution time (T_i^l_min)
+        # This implements equation (11) from the paper
+        # We're finding the fastest possible local execution by taking
+        # the minimum time across all available cores
         t_l_min = min(node.core_execution_times)
-        # Calculate total remote execution time
-        t_re = (node.cloud_execution_times[0] + node.cloud_execution_times[1] + node.cloud_execution_times[2])
-        # If remote execution is faster, assign to cloud
+
+        # Calculate total remote execution time (T_i^re)
+        # This implements equation (12) from the paper
+        # Remote execution involves three phases:
+        # 1. Sending data to cloud (T_i^s)
+        # 2. Cloud computation (T_i^c)
+        # 3. Receiving results (T_i^r)
+        t_re = (node.cloud_execution_times[0] +  # Send time
+                node.cloud_execution_times[1] +  # Cloud execution time
+                node.cloud_execution_times[2])   # Receive time
+
+        # Compare local vs remote execution time
+        # If remote execution is faster, mark as a "cloud task"
         if t_re < t_l_min:
-            node.is_core_task = False  # Assign to cloud
+            node.is_core_task = False  # Will be executed in cloud
         else:
-            node.is_core_task = True   # Assign to local core
+            node.is_core_task = True   # Will be executed locally
 
 def task_prioritizing(nodes):
     w = [0] * len(nodes)
-    # Calculate computation costs (wi)
+    # Calculate computation costs for each task
     for i, node in enumerate(nodes):
-        if not node.is_core_task:  # Cloud task
-            # Equation (13): wi = Tre_i for cloud tasks
-            w[i] = (node.cloud_execution_times[0] +  node.cloud_execution_times[1] + node.cloud_execution_times[2])
-        else:  # Local task
-            # Equation (14): wi = avg(1≤k≤K) Tl,k_i for local tasks
+        if not node.is_core_task:  
+            # For cloud tasks, use total remote execution time
+            # Following equation (13): wi = Ti^re
+            w[i] = (node.cloud_execution_times[0] +   # Send time
+                   node.cloud_execution_times[1] +    # Cloud execution time
+                   node.cloud_execution_times[2])     # Receive time
+        else:  
+            # For local tasks, use average execution time across cores
+            # Following equation (14): wi = avg(1≤k≤K) Ti,k^l
             w[i] = sum(node.core_execution_times) / len(node.core_execution_times)
 
     computed_priority_scores = {}
 
     def calculate_priority(task):
-        # Check if already calculated
+        # Memoization to avoid recalculating priorities
         if task.id in computed_priority_scores:
             return computed_priority_scores[task.id]
-        # Base case: exit task
-        # Equation (16): priority(vi) = wi for exit tasks
+        # Base case: Exit tasks (tasks with no children)
+        # Following equation (16): priority(vi) = wi for exit tasks
         if task.children == []:
             computed_priority_scores[task.id] = w[task.id - 1]
             return w[task.id - 1]
-        # Recursive case: Equation (15)
-        # priority(vi) = wi + max(vj∈succ(vi)) priority(vj)
+        # Recursive case: Non-exit tasks
+        # Following equation (15): priority(vi) = wi + max(vj∈succ(vi)) priority(vj)
         max_successor_priority = max(calculate_priority(successor) for successor in task.children)
         task_priority = w[task.id - 1] + max_successor_priority
         computed_priority_scores[task.id] = task_priority
@@ -456,22 +490,22 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
     # Cache for storing evaluated migrations
     migration_cache = {}
     
-    def get_cache_key(node_idx, target_resource):
+    def get_cache_key(node_idx, target_execution_unit):
         """Generate unique cache key for each migration scenario"""
-        return (node_idx, target_resource, tuple(node.assignment for node in nodes))
+        return (node_idx, target_execution_unit, tuple(node.assignment for node in nodes))
     
-    def evaluate_migration(nodes, seqs, node_idx, target_resource):
+    def evaluate_migration(nodes, seqs, node_idx, target_execution_unit):
         """
         Evaluates migration with caching to avoid redundant calculations.
         """
-        cache_key = get_cache_key(node_idx, target_resource)
+        cache_key = get_cache_key(node_idx, target_execution_unit)
         if cache_key in migration_cache:
             return migration_cache[cache_key]
             
         seq_copy = [seq.copy() for seq in seqs]
         nodes_copy = deepcopy(nodes)
         
-        seq_copy = construct_sequence(nodes_copy, node_idx + 1, target_resource, seq_copy)
+        seq_copy = construct_sequence(nodes_copy, node_idx + 1, target_execution_unit, seq_copy)
         kernel_algorithm(nodes_copy, seq_copy)
         
         current_T = total_time(nodes_copy)
@@ -514,12 +548,12 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
         # If we found a valid migration in Step 1, return it
         if best_migration:
             node_idx, resource_idx, time, energy = best_migration
-            return OptimizationState(
+            return TaskMigrationState(
                 time=time,
                 energy=energy,
                 efficiency_ratio=best_energy_reduction,
                 node_index=node_idx + 1,
-                target_resource=resource_idx + 1
+                target_execution_unit=resource_idx + 1
             )
     
         # Step 2: If no energy-reducing migrations found, look for best efficiency ratio
@@ -545,12 +579,12 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
             return None
         
         neg_ratio, n_best, k_best, T_best, E_best = heappop(migration_candidates)
-        return OptimizationState(
+        return TaskMigrationState(
             time=T_best, 
             energy=E_best,
             efficiency_ratio=-neg_ratio,
             node_index=n_best + 1,
-            target_resource=k_best + 1
+            target_execution_unit=k_best + 1
         )
 
     # Main optimization loop
@@ -593,7 +627,7 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
         sequence = construct_sequence(
             nodes,
             best_migration.node_index,
-            best_migration.target_resource - 1,
+            best_migration.target_execution_unit - 1,
             sequence
         )
         kernel_algorithm(nodes, sequence)
