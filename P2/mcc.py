@@ -5,6 +5,7 @@ from collections import deque
 import numpy as np
 from heapq import heappush, heappop
 from enum import Enum
+from task_scheduler import TaskScheduler
 
 core_execution_times = {
     1: [9, 7, 5],
@@ -31,24 +32,24 @@ core_execution_times = {
 cloud_execution_times = [3, 1, 1]  # T_send, T_cloud, T_receive
 
 class SchedulingState(Enum):
-    UNSCHEDULED = 0      # Task hasn't been scheduled yet
-    SCHEDULED = 1        # Task has been initially scheduled
-    KERNEL_SCHEDULED = 2 # Task has been scheduled by the kernel algorithm
+    UNSCHEDULED = 0      # Initial state
+    SCHEDULED = 1        # After initial scheduling (Step 1 in paper)
+    KERNEL_SCHEDULED = 2  # After kernel algorithm (Step 2 in paper)
 
 @dataclass
 class TaskMigrationState:
     time: float                # Completion time after migration
     energy: float              # Energy consumption after migration
     efficiency_ratio: float    # Measure of migration effectiveness
-    node_index: int            # Which task is being migrated
+    task_index: int            # Which task is being migrated
     target_execution_unit: int # Where the task is being migrated to
 
 class Task(object):
     def __init__(self, id, parents=None, children=None):
-        # Basic Task Properties
-        self.id = id                # Unique task identifier vi
-        self.parents = parents or [] # pred(vi) - set of immediate predecessors
-        self.children = children or [] # succ(vi) - set of immediate successors
+        # Basic graph structure
+        self.id = id                     # Maps to vi in the paper
+        self.parents = parents or []     # pred(vi) - predecessor tasks
+        self.children = children or []   # succ(vi) - successor tasks
         # Execution Times
         self.core_execution_times = core_execution_times[id]       # Ti,k^l - execution time on k-th core
         self.cloud_execution_times = cloud_execution_times         # [Ti^s, Ti^c, Ti^r] - cloud timing parameters
@@ -143,10 +144,10 @@ def task_prioritizing(nodes):
             # Following equation (14): wi = avg(1≤k≤K) Ti,k^l
             w[i] = sum(node.core_execution_times) / len(node.core_execution_times)
 
-    computed_priority_scores = {}
+    computed_priority_scores = {} # Cache for storing computed priorities
 
     def calculate_priority(task):
-        # Memoization to avoid recalculating priorities
+        # Check if we've already calculated this task's priority
         if task.id in computed_priority_scores:
             return computed_priority_scores[task.id]
         # Base case: Exit tasks (tasks with no children)
@@ -173,19 +174,19 @@ def execution_unit_selection(nodes):
     k = 3  # Number of cores
     sequences = [[] for _ in range(k + 1)]  # k cores + cloud
     
-    # Track resource availability
-    core_earliest_ready = [0] * k
-    wireless_send_ready = 0
-    wireless_receive_ready = 0
+    # Track when each resource becomes available
+    core_earliest_ready = [0] * k        # When each local core becomes free
+    wireless_send_ready = 0              # When we can next send to cloud
+    wireless_receive_ready = 0           # When we can next receive from cloud
     
-    # Create and sort priority list
+    # Sort tasks by priority score
     node_priority_list = [(node.priority_score, node.id) for node in nodes]
     node_priority_list.sort(reverse=True)
     priority_order = [item[1] for item in node_priority_list]
     
     # Separate entry tasks from non-entry tasks
-    entry_tasks = []
-    non_entry_tasks = []
+    entry_tasks = []       # Tasks with no prerequisites
+    non_entry_tasks = []   # Tasks that depend on other tasks
     for node_id in priority_order:
         node = nodes[node_id - 1]
         if not node.parents:
@@ -202,6 +203,7 @@ def execution_unit_selection(nodes):
             best_core = -1
             best_start_time = float('inf')
             
+            # Check each core
             for core in range(k):
                 # Task must start after core's previous task finishes
                 start_time = core_earliest_ready[core]
@@ -212,7 +214,7 @@ def execution_unit_selection(nodes):
                     best_core = core
                     best_start_time = start_time
             
-            # Schedule task on selected core
+            # Update task scheduling information
             task.local_core_finish_time = best_finish_time
             task.execution_finish_time = best_finish_time
             task.execution_unit_start_times = [-1] * 4
@@ -227,16 +229,16 @@ def execution_unit_selection(nodes):
     
     # Schedule cloud entry tasks with proper pipeline staggering
     for task in cloud_entry_tasks:
-        # Schedule sending phase
+        # Phase 1: Schedule Sending to cloud
         task.wireless_sending_ready_time = wireless_send_ready
         task.wireless_sending_finish_time = task.wireless_sending_ready_time + task.cloud_execution_times[0]
         wireless_send_ready = task.wireless_sending_finish_time
         
-        # Schedule cloud computation (can occur in parallel)
+        # Phase 2: Schedule Cloud computation
         task.remote_cloud_ready_time = task.wireless_sending_finish_time
         task.remote_cloud_finish_time = task.remote_cloud_ready_time + task.cloud_execution_times[1]
         
-        # Schedule receiving phase
+        # Phase 3: Schedule Receiving results
         task.wireless_recieving_ready_time = task.remote_cloud_finish_time
         task.wireless_recieving_finish_time = (
             max(wireless_receive_ready, task.wireless_recieving_ready_time) + task.cloud_execution_times[2]
@@ -260,7 +262,8 @@ def execution_unit_selection(nodes):
                 for parent in task.parents),
             0
         )
-        
+
+        # Calculate cloud pipeline timing
         task.wireless_sending_ready_time = max(
             max(max(parent.local_core_finish_time, parent.wireless_sending_finish_time) 
                 for parent in task.parents),
@@ -275,14 +278,16 @@ def execution_unit_selection(nodes):
             task.wireless_sending_finish_time,
             max(parent.remote_cloud_finish_time for parent in task.parents)
         )
-        task.wireless_recieving_ready_time = task.remote_cloud_ready_time + task.cloud_execution_times[1]
+        task.wireless_recieving_ready_time = (
+            task.remote_cloud_ready_time + task.cloud_execution_times[1]
+        )
         task.wireless_recieving_finish_time = (
             max(wireless_receive_ready, task.wireless_recieving_ready_time) + task.cloud_execution_times[2]
         )
         
         # Determine whether to execute locally or on cloud
         if not task.is_core_task:
-            # Schedule on cloud
+            # Schedule pre-determined cloud tasks
             task.execution_finish_time = task.wireless_recieving_finish_time
             task.local_core_finish_time = 0
             task.execution_unit_start_times = [-1] * 4
@@ -332,7 +337,6 @@ def execution_unit_selection(nodes):
         task.is_scheduled = SchedulingState.SCHEDULED
     
     return sequences
-
 
 def construct_sequence(nodes, targetNodeId, targetLocation, seq):
     # Step 1: Map node IDs to node objects for quick lookup.
@@ -552,7 +556,7 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
                 time=time,
                 energy=energy,
                 efficiency_ratio=best_energy_reduction,
-                node_index=node_idx + 1,
+                task_index=node_idx + 1,
                 target_execution_unit=resource_idx + 1
             )
     
@@ -583,7 +587,7 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
             time=T_best, 
             energy=E_best,
             efficiency_ratio=-neg_ratio,
-            node_index=n_best + 1,
+            task_index=n_best + 1,
             target_execution_unit=k_best + 1
         )
 
@@ -626,7 +630,7 @@ def optimize_task_scheduling(nodes, sequence, T_init_pre_kernel, core_powers=[1,
         # Apply the selected migration
         sequence = construct_sequence(
             nodes,
-            best_migration.node_index,
+            best_migration.task_index,
             best_migration.target_execution_unit - 1,
             sequence
         )
