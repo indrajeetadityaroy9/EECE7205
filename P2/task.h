@@ -1,24 +1,24 @@
 #ifndef TASK_H
 #define TASK_H
-
 #include <vector>
 #include "scheduler_constants.h"
+using namespace std;
 
 // Class representing a task in the mobile cloud computing environment
 // Implements the task model from Section II.A of the paper
 class Task {
 public:
     // Constructor: Initialize task with ID and optional predecessor/successor tasks
-    Task(int taskId, const std::vector<Task*>& predTasks = {}, const std::vector<Task*>& succTasks = {});
+    Task(int taskId, const vector<Task*>& predTasks = {}, const  vector<Task*>& succTasks = {});
 
     // Basic task graph getters
     int getId() const;                              // Get task identifier
-    const std::vector<Task*>& getPredTasks() const; // Get predecessor tasks (pred(vi))
-    const std::vector<Task*>& getSuccTasks() const; // Get successor tasks (succ(vi))
+    const vector<Task*>& getPredTasks() const; // Get predecessor tasks (pred(vi))
+    const vector<Task*>& getSuccTasks() const; // Get successor tasks (succ(vi))
     
     // Execution time getters
-    std::vector<int> getCoreExecutionTimes() const;  // Get T_i^l_k for all cores k
-    std::vector<int> getCloudExecutionTimes() const; // Get [T_i^s, T_i^c, T_i^r]
+    vector<int> getCoreExecutionTimes() const;  // Get T_i^l_k for all cores k
+    vector<int> getCloudExecutionTimes() const; // Get [T_i^s, T_i^c, T_i^r]
     
     // Finish time getters/setters (Section II.C)
     int getFinishTimeLocal() const;          // Get FT_i^l (local core finish time)
@@ -60,15 +60,18 @@ public:
     SchedulingState getSchedulingState() const;  // Get current scheduling state
     void setSchedulingState(SchedulingState state); // Set scheduling state
 
+    void addSuccessor(Task& task, Task* successor);
+    void addPredecessors(Task& task, const  vector<Task*>& predecessors);
+
 private:
     // Basic task graph structure (Section II.A)
     int id;                         // Task identifier
-    std::vector<Task*> pred_tasks;  // Predecessor tasks in the graph
-    std::vector<Task*> succ_tasks;  // Successor tasks in the graph
+    vector<Task*> pred_tasks;  // Predecessor tasks in the graph
+    vector<Task*> succ_tasks;  // Successor tasks in the graph
 
     // Execution timing parameters (Section II.B)
-    std::vector<int> core_execution_times;   // T_i^l_k for each core k
-    std::vector<int> cloud_execution_times;  // [T_i^s, T_i^c, T_i^r]
+    vector<int> core_execution_times;   // T_i^l_k for each core k
+    vector<int> cloud_execution_times;  // [T_i^s, T_i^c, T_i^r]
 
     // Task completion timing parameters (Section II.C)
     int FT_l;    // Local core finish time
@@ -86,7 +89,7 @@ private:
     int priority_score;      // Task priority for scheduling
     int assignment;         // Assigned execution unit
     bool is_core_task;      // Flag for local vs cloud execution
-    std::vector<int> execution_unit_task_start_times; // Start times per unit
+    vector<int> execution_unit_task_start_times; // Start times per unit
     int execution_finish_time;  // Final completion time
     SchedulingState scheduling_state; // Current state in scheduling algorithm
 };

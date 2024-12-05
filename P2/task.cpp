@@ -1,7 +1,8 @@
 #include "task.h"
 #include "scheduler_constants.h"
+using namespace std;
 
-Task::Task(int taskId, const std::vector<Task*>& predTasks, const std::vector<Task*>& succTasks)
+Task::Task(int taskId, const vector<Task*>& predTasks, const vector<Task*>& succTasks)
     : id(taskId)
     , pred_tasks(predTasks)
     , succ_tasks(succTasks)
@@ -26,12 +27,12 @@ Task::Task(int taskId, const std::vector<Task*>& predTasks, const std::vector<Ta
 
 // Basic task graph getters
 int Task::getId() const { return id; }
-const std::vector<Task*>& Task::getPredTasks() const { return pred_tasks; }
-const std::vector<Task*>& Task::getSuccTasks() const { return succ_tasks; }
+const vector<Task*>& Task::getPredTasks() const { return pred_tasks; }
+const vector<Task*>& Task::getSuccTasks() const { return succ_tasks; }
 
 // Execution time getters
-std::vector<int> Task::getCoreExecutionTimes() const { return core_execution_times; }
-std::vector<int> Task::getCloudExecutionTimes() const { return cloud_execution_times; }
+vector<int> Task::getCoreExecutionTimes() const { return core_execution_times; }
+vector<int> Task::getCloudExecutionTimes() const { return cloud_execution_times; }
 
 // Finish time getters and setters
 int Task::getFinishTimeLocal() const { return FT_l; }
@@ -77,3 +78,12 @@ void Task::setExecutionFinishTime(int time) { execution_finish_time = time; }
 
 SchedulingState Task::getSchedulingState() const { return scheduling_state; }
 void Task::setSchedulingState(SchedulingState state) { scheduling_state = state; }
+
+void Task::addSuccessor(Task& task, Task* successor) {
+    const_cast< vector<Task*>&>(task.getSuccTasks()).push_back(successor);
+}
+
+void Task::addPredecessors(Task& task, const  vector<Task*>& predecessors) {
+    auto& predTasks = const_cast< vector<Task*>&>(task.getPredTasks());
+    predTasks.insert(predTasks.end(), predecessors.begin(), predecessors.end());
+}

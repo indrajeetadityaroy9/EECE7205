@@ -1,20 +1,20 @@
 #ifndef SCHEDULER_CONSTANTS_H
 #define SCHEDULER_CONSTANTS_H
-
 #include <array>
 #include <map>
 #include <vector>
+using namespace std;
 
 enum class SchedulingState {
-    UNSCHEDULED = 0,      // Initial state before scheduling
-    SCHEDULED = 1,        // Task has been scheduled in initial phase
-    KERNEL_SCHEDULED = 2   // Task has been processed by kernel algorithm
+    UNSCHEDULED = 0,
+    SCHEDULED = 1,
+    KERNEL_SCHEDULED = 2
 };
 
 namespace scheduler_constants {
     constexpr int NUM_CORES = 3;
-    const std::array<int, 3> CLOUD_EXECUTION_TIMES = {3, 1, 1};
-    const std::map<int, std::array<int, NUM_CORES>> CORE_EXECUTION_TIMES = {
+    const array<int, 3> CLOUD_EXECUTION_TIMES = {3, 1, 1};
+    const map<int, array<int, NUM_CORES>> CORE_EXECUTION_TIMES = {
         {1,  {9, 7, 5}},
         {2,  {8, 6, 5}},
         {3,  {6, 5, 4}},
@@ -38,42 +38,37 @@ namespace scheduler_constants {
     };
 }
 
-// Structure to track migration decisions
 struct TaskMigrationState {
-    int time;              // Total completion time after migration
-    int energy;            // Total energy consumption after migration
-    double efficiency;     // Energy reduction per unit time
-    int task_index;        // Task selected for migration
-    int target_exec_unit;  // Target execution unit (core or cloud)
+    int time;              
+    double energy;          
+    double efficiency;     
+    int task_index;        
+    int target_exec_unit;
 
     TaskMigrationState(
         int t = 0, 
-        int e = 0, 
+        double e = 0.0, 
         double eff = 0.0, 
         int task = -1, 
         int target = -1
     ) : time(t), energy(e), efficiency(eff), 
         task_index(task), target_exec_unit(target) {}
 
-    // Support for structured bindings
     template<typename T>
     friend struct as_tuple_t;
 };
 
-// Enable structured bindings support
 template<typename T>
 struct [[nodiscard]] as_tuple_t;
 
 template<>
 struct as_tuple_t<TaskMigrationState> {
-    // For const access
     static auto apply(const TaskMigrationState& s) {
-        return std::make_tuple(s.time, s.energy, s.efficiency, s.task_index, s.target_exec_unit);
+        return make_tuple(s.time, s.energy, s.efficiency, s.task_index, s.target_exec_unit);
     }
     
-    // For modifiable access
     static auto apply(TaskMigrationState& s) {
-        return std::tie(s.time, s.energy, s.efficiency, s.task_index, s.target_exec_unit);
+        return tie(s.time, s.energy, s.efficiency, s.task_index, s.target_exec_unit);
     }
 };
 
