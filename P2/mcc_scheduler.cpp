@@ -111,3 +111,54 @@ int  MCCScheduler::calculatePriority(Task& task, vector<int>& w,map<int, int>& c
     computed_priority_scores[task.getId()] = task_priority;
     return task_priority;
 }
+
+std::vector<Task> MCCScheduler::kernel_algorithm(std::vector<Task>& tasks, std::vector<std::vector<int>>& sequences) {
+    TaskMigrationScheduler scheduler(tasks, sequences);
+    std::deque<Task*> queue = scheduler.initialize_queue();
+    
+    while (!queue.empty()) {
+        Task* current_task = queue.front();
+        queue.pop_front();
+        
+        current_task->setSchedulingState(SchedulingState::KERNEL_SCHEDULED);
+        
+        if (current_task->isCoreTask()) {
+            scheduler.schedule_local_task(*current_task);
+        } else {
+            scheduler.schedule_cloud_task(*current_task);
+        }
+        
+        for (Task& task : tasks) {
+            scheduler.update_task_state(task);
+            
+            if (scheduler.dependency_ready[task.getId() - 1] == 0 &&
+                scheduler.sequence_ready[task.getId() - 1] == 0 &&
+                task.getSchedulingState() != SchedulingState::KERNEL_SCHEDULED) {
+                
+                auto it = std::find_if(queue.begin(), queue.end(),
+                    [&task](const Task* t) { return t->getId() == task.getId(); });
+                
+                if (it == queue.end()) {
+                    queue.push_back(&task);
+                }
+            }
+        }
+    }
+    
+    for (Task& task : tasks) {
+        task.setSchedulingState(SchedulingState::UNSCHEDULED);
+    }
+    
+    return tasks;
+}
+
+std::tuple<int, int, std::vector<int>> MCCScheduler::generate_cache_key(const std::vector<Task>& tasks, int task_idx, int target_execution_unit) {
+
+    std::vector<int> task_assignments;
+    task_assignments.reserve(tasks.size());
+    for (const Task& task : tasks) {
+        task_assignments.push_back(task.getAssignment());
+    }
+
+    return std::make_tuple(task_idx, target_execution_unit, task_assignments);
+}

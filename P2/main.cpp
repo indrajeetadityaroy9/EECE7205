@@ -7,6 +7,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include "task_graph.h"
 using namespace std;
 
 // Helper functions for printing task information
@@ -94,63 +95,58 @@ void printTaskSchedule(const vector<Task>& tasks) {
 }
 
 int main() {
-    vector<Task> tasks;
-    for (int i = 0; i < 10; i++) {
-        tasks.emplace_back(i + 1);  // Tasks are 1-indexed
-    }
+    // Initialize TaskGraph with 10 tasks (1-indexed)
+    TaskGraph graph(10);
+    // Add edges to build the task dependency graph
+    // Add all edges from task 1 (root node) to its immediate children
+    graph.addEdge(1, 2);  // task1 -> task2
+    graph.addEdge(1, 3);  // task1 -> task3
+    graph.addEdge(1, 4);  // task1 -> task4
+    graph.addEdge(1, 5);  // task1 -> task5
+    graph.addEdge(1, 6);  // task1 -> task6
+    // Add middle layer connections - these tasks connect the root's children to the pre-final layer
+    graph.addEdge(2, 8);  // task2 -> task8
+    graph.addEdge(2, 9);  // task2 -> task9
+    graph.addEdge(3, 7);  // task3 -> task7
+    graph.addEdge(4, 8);  // task4 -> task8
+    graph.addEdge(4, 9);  // task4 -> task9
+    graph.addEdge(5, 9);  // task5 -> task9
+    graph.addEdge(6, 8);  // task6 -> task8
+    // Add edges to the final task (task 10)
+    graph.addEdge(7, 10); // task7 -> task10
+    graph.addEdge(8, 10); // task8 -> task10
+    graph.addEdge(9, 10); // task9 -> task10
 
-    tasks[8].addSuccessor(tasks[8], &tasks[9]);  // task9 -> task10
-    tasks[7].addSuccessor(tasks[7], &tasks[9]);  // task8 -> task10
-    tasks[6].addSuccessor(tasks[6], &tasks[9]);  // task7 -> task10
-    tasks[5].addSuccessor(tasks[5], &tasks[7]);  // task6 -> task8
-    tasks[4].addSuccessor(tasks[4], &tasks[8]);  // task5 -> task9
-    tasks[3].addSuccessor(tasks[3], &tasks[7]);  // task4 -> task8
-    tasks[3].addSuccessor(tasks[3], &tasks[8]);  // task4 -> task9
-    tasks[2].addSuccessor(tasks[2], &tasks[6]);  // task3 -> task7
-    tasks[1].addSuccessor(tasks[1], &tasks[7]);  // task2 -> task8
-    tasks[1].addSuccessor(tasks[1], &tasks[8]);  // task2 -> task9
-    tasks[0].addSuccessor(tasks[0], &tasks[1]);  // task1 -> task2
-    tasks[0].addSuccessor(tasks[0], &tasks[2]);  // task1 -> task3
-    tasks[0].addSuccessor(tasks[0], &tasks[3]);  // task1 -> task4
-    tasks[0].addSuccessor(tasks[0], &tasks[4]);  // task1 -> task5
-    tasks[0].addSuccessor(tasks[0], &tasks[5]);  // task1 -> task6
-    tasks[9].addPredecessors(tasks[9], {&tasks[6], &tasks[7], &tasks[8]});  // task10 <- [task7, task8, task9]
-    tasks[8].addPredecessors(tasks[8], {&tasks[1], &tasks[3], &tasks[4]});  // task9 <- [task2, task4, task5]
-    tasks[7].addPredecessors(tasks[7], {&tasks[1], &tasks[3], &tasks[5]});  // task8 <- [task2, task4, task6]
-    tasks[6].addPredecessors(tasks[6], {&tasks[2]});                        // task7 <- [task3]
-    tasks[5].addPredecessors(tasks[5], {&tasks[0]});                        // task6 <- [task1]
-    tasks[4].addPredecessors(tasks[4], {&tasks[0]});                        // task5 <- [task1]
-    tasks[3].addPredecessors(tasks[3], {&tasks[0]});                        // task4 <- [task1]
-    tasks[2].addPredecessors(tasks[2], {&tasks[0]});                        // task3 <- [task1]
-    tasks[1].addPredecessors(tasks[1], {&tasks[0]});
+    // Create MCCScheduler with the task graph and run the algorithm
+    MCCScheduler mcc(graph.getAllTasks());
     
-    // Create MCCScheduler scheduler and run the algorithm
-    MCCScheduler mcc(tasks);
-    
-    // Print initial task graph
+    // Print the initial structure of our task graph
     cout << "Initial Task Graph:\n";
-    printTaskGraph(tasks);
+    printTaskGraph(graph.getAllTasks());
     
-    // Run scheduling phases
-    mcc.primaryAssignment();
-    mcc.taskPrioritizing();
-    auto sequences = mcc.selectExecutionUnits();
+    // Execute the two main phases of the scheduling algorithm
+    mcc.primaryAssignment();  // Determine initial cloud vs. local core assignment
+    mcc.taskPrioritizing();   // Calculate task priorities for scheduling
+    auto sequences = mcc.selectExecutionUnits();  // Generate final execution sequences
     
-    // Print results
+    // Print the resulting execution sequences
     printFinalSequences(sequences);
     
-    vector<int> core_powers = {1, 2, 4};
-    double cloud_sending_power = 0.5;
+    // Define power consumption parameters for energy calculations
+    vector<int> core_powers = {1, 2, 4};  // Power consumption for each local core
+    double cloud_sending_power = 0.5;      // Power consumption for cloud communication
     
+    // Calculate and display the key performance metrics
     int total_time = mcc.totalTime();
     double total_energy = mcc.totalEnergy(core_powers, cloud_sending_power);
     
+    // Output the final scheduling results
     cout << "\nINITIAL SCHEDULING APPLICATION COMPLETION TIME: " << total_time << "\n";
     cout << "INITIAL APPLICATION ENERGY CONSUMPTION: " << total_energy << "\n";
     cout << "INITIAL TASK SCHEDULE:\n";
    
-    // Print the task schedule
-    printTaskSchedule(tasks);
+    // Display detailed schedule for each task
+    printTaskSchedule(graph.getAllTasks());
 
     return 0;
 }
