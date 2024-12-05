@@ -43,7 +43,7 @@ struct TaskMigrationState {
     double energy;          
     double efficiency;     
     int task_index;        
-    int target_exec_unit;
+    int target_execution_unit;
 
     TaskMigrationState(
         int t = 0, 
@@ -52,7 +52,7 @@ struct TaskMigrationState {
         int task = -1, 
         int target = -1
     ) : time(t), energy(e), efficiency(eff), 
-        task_index(task), target_exec_unit(target) {}
+        task_index(task), target_execution_unit(target) {}
 
     template<typename T>
     friend struct as_tuple_t;
@@ -64,11 +64,11 @@ struct [[nodiscard]] as_tuple_t;
 template<>
 struct as_tuple_t<TaskMigrationState> {
     static auto apply(const TaskMigrationState& s) {
-        return make_tuple(s.time, s.energy, s.efficiency, s.task_index, s.target_exec_unit);
+        return make_tuple(s.time, s.energy, s.efficiency, s.task_index, s.target_execution_unit);
     }
     
     static auto apply(TaskMigrationState& s) {
-        return tie(s.time, s.energy, s.efficiency, s.task_index, s.target_exec_unit);
+        return tie(s.time, s.energy, s.efficiency, s.task_index, s.target_execution_unit);
     }
 };
 
