@@ -1477,6 +1477,22 @@ def print_task_graph(tasks):
             print(f"  Children: {succ_task_ids}")
             print()
 
+def print_final_sequences(sequences):
+   print("\Execution Sequences:")
+   print("-" * 40)
+   
+   # Label and print each execution sequence
+   for i, sequence in enumerate(sequences):
+       # Determine execution unit label
+       if i < 3:
+           label = f"Core {i+1}"
+       else:
+           label = "Cloud"
+           
+       # Format and print sequence
+       task_list = [t for t in sequence]
+       print(f"{label:12}: {task_list}")
+
 if __name__ == '__main__':
     """
     task20 = Task(id=20, pred_tasks=None, succ_task=[])
@@ -1615,6 +1631,7 @@ if __name__ == '__main__':
     primary_assignment(tasks)
     task_prioritizing(tasks)
     sequence = execution_unit_selection(tasks)
+    print_final_sequences(sequence)
     T_final = total_time(tasks)
     E_total = total_energy(tasks, core_powers=[1, 2, 4], cloud_sending_power=0.5)
     print("INITIAL SCHEDULING APPLICATION COMPLETION TIME: ", T_final)
@@ -1626,9 +1643,7 @@ if __name__ == '__main__':
 
     tasks2, sequence = optimize_task_scheduling(tasks, sequence, T_final, core_powers=[1, 2, 4], cloud_sending_power=0.5)
 
-    print("final sequence: ")
-    for s in sequence:
-        print([i for i in s])
+    print_final_sequences(sequence)
 
     T_final = total_time(tasks)
     E_final = total_energy(tasks, core_powers=[1, 2, 4], cloud_sending_power=0.5)
