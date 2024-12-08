@@ -5,6 +5,8 @@ from collections import deque
 import numpy as np
 from heapq import heappush, heappop
 from enum import Enum
+import networkx as nx
+import matplotlib.pyplot as plt
 
 # Dictionary storing execution times for tasks on different cores
 # Key: task ID (1-20)
@@ -21,16 +23,16 @@ core_execution_times = {
     8: [6, 4, 2],
     9: [5, 3, 2],
     10: [7, 4, 2],
-    11: [12, 3, 3],
-    12: [12, 8, 4],
-    13: [11, 3, 2],
-    14: [12, 11, 4],
-    15: [13, 4, 2],
-    16: [9, 7, 3],
-    17: [9, 3, 3],
-    18: [13, 9, 2],
-    19: [10, 5, 3],
-    20: [12, 5, 4]
+    11: [10, 7, 4],
+    12: [11, 8, 5],
+    13: [9, 6, 3],
+    14: [12, 8, 4],
+    15: [10, 7, 3],
+    16: [11, 7, 4],
+    17: [9, 6, 3],
+    18: [12, 8, 5],
+    19: [10, 7, 4],
+    20: [11, 8, 5]
 }
 
 # Cloud execution parameters from Section II.B of the paper:
@@ -296,8 +298,8 @@ class InitialTaskScheduler:
 
         # Process tasks in priority order (from equation 15)
         # This ensures high-priority tasks are scheduled first
-        for task_id in priority_order:
-            task = self.tasks[task_id - 1]
+        for id in priority_order:
+            task = self.tasks[id - 1]
             
             # Check if task has predecessors (pred(vi) from paper)
             if not task.pred_tasks:
@@ -622,14 +624,14 @@ def execution_unit_selection(tasks):
     # for the task migration algorithm
     return scheduler.sequences
 
-def construct_sequence(tasks, task_id, execution_unit, original_sequence):
+def construct_sequence(tasks, id, execution_unit, original_sequence):
    """
    Implements the linear-time rescheduling algorithm described in Section III.B.2.
    Constructs new sequence after task migration while preserving task precedence.
    
    Args:
        tasks: List of all tasks in the application
-       task_id: ID of task v_tar being migrated
+       id: ID of task v_tar being migrated
        execution_unit: New execution location k_tar
        original_sequence: Current Sk sequences for all execution units
        
@@ -638,10 +640,10 @@ def construct_sequence(tasks, task_id, execution_unit, original_sequence):
    """
    # Step 1: Create task lookup dictionary for O(1) access
    # Enables quick task object retrieval during sequence construction
-   task_id_to_task = {task.id: task for task in tasks}
+   id_to_task = {task.id: task for task in tasks}
    
    # Step 2: Get the target task v_tar for migration
-   target_task = task_id_to_task.get(task_id)
+   target_task = id_to_task.get(id)
    
    # Step 3: Get ready time for insertion
    # RTi^l for local cores (k_tar > 0)
@@ -661,8 +663,8 @@ def construct_sequence(tasks, task_id, execution_unit, original_sequence):
    # Get start times for tasks in new sequence
    # Used to maintain proper task ordering
    start_times = [
-       task_id_to_task[task_id].execution_unit_task_start_times[execution_unit] 
-       for task_id in new_sequence_task_list
+       id_to_task[id].execution_unit_task_start_times[execution_unit] 
+       for id in new_sequence_task_list
    ]
    
    # Step 6: Find insertion point using binary search
@@ -1000,7 +1002,7 @@ def kernel_algorithm(tasks, sequences):
    
    return tasks
     
-def generate_cache_key(tasks, task_idx, target_execution_unit):
+def generate_cache_key(tasks, idx, target_execution_unit):
         """
         Generates cache key for memoizing migration evaluations.
         Enables efficient evaluation of migration options in Section III.B.
@@ -1009,10 +1011,10 @@ def generate_cache_key(tasks, task_idx, target_execution_unit):
         # 1. Task being migrated (v_tar)
         # 2. Target execution unit (k_tar)
         # 3. Current task assignments (ki for all tasks)
-        return (task_idx, target_execution_unit, 
+        return (idx, target_execution_unit, 
                 tuple(task.assignment for task in tasks))
 
-def evaluate_migration(tasks, seqs, task_idx, target_execution_unit, migration_cache, core_powers=[1, 2, 4], cloud_sending_power=0.5):
+def evaluate_migration(tasks, seqs, idx, target_execution_unit, migration_cache, core_powers=[1, 2, 4], cloud_sending_power=0.5):
         """
         Evaluates potential task migration scenario described in Section III.B.
         Uses caching to avoid redundant calculations.
@@ -1020,7 +1022,7 @@ def evaluate_migration(tasks, seqs, task_idx, target_execution_unit, migration_c
         Args:
             tasks: List of all tasks
             seqs: Current Sk sequences
-            task_idx: Index of task v_tar to migrate
+            idx: Index of task v_tar to migrate
             target_execution_unit: Proposed location k_tar
             migration_cache: Dictionary storing previous migration evaluations
             
@@ -1030,7 +1032,7 @@ def evaluate_migration(tasks, seqs, task_idx, target_execution_unit, migration_c
             - E_total: Total energy consumption (eq. 9)
         """
         # Generate cache key for this migration scenario
-        cache_key = generate_cache_key(tasks, task_idx, target_execution_unit)
+        cache_key = generate_cache_key(tasks, idx, target_execution_unit)
                     
         # Check cache for previously evaluated scenario
         if cache_key in migration_cache:
@@ -1043,7 +1045,7 @@ def evaluate_migration(tasks, seqs, task_idx, target_execution_unit, migration_c
         # Apply migration and recalculate schedule
         sequence_copy = construct_sequence(
             tasks_copy, 
-            task_idx + 1,  # Convert to 1-based task ID
+            idx + 1,  # Convert to 1-based task ID
             target_execution_unit, 
             sequence_copy
         )
@@ -1093,7 +1095,7 @@ def identify_optimal_migration(migration_trials_results, T_final, E_total, T_max
         best_energy_reduction = 0
         best_migration = None
 
-        for task_idx, resource_idx, time, energy in migration_trials_results:
+        for idx, resource_idx, time, energy in migration_trials_results:
             # Skip migrations violating T_max constraint
             if time > T_max:
                 continue
@@ -1108,16 +1110,16 @@ def identify_optimal_migration(migration_trials_results, T_final, E_total, T_max
             if time <= T_final and energy_reduction > 0:
                 if energy_reduction > best_energy_reduction:
                     best_energy_reduction = energy_reduction
-                    best_migration = (task_idx, resource_idx, time, energy)
+                    best_migration = (idx, resource_idx, time, energy)
 
         # Return best energy-reducing migration if found
         if best_migration:
-            task_idx, resource_idx, time, energy = best_migration
+            idx, resource_idx, time, energy = best_migration
             return TaskMigrationState(
                 time=time,
                 energy=energy,
                 efficiency=best_energy_reduction,
-                task_index=task_idx + 1,
+                task_index=idx + 1,
                 target_execution_unit=resource_idx + 1
             )
 
@@ -1125,7 +1127,7 @@ def identify_optimal_migration(migration_trials_results, T_final, E_total, T_max
         # "select the one that results in the largest ratio of
         # energy reduction to the increase of T_total"
         migration_candidates = []
-        for task_idx, resource_idx, time, energy in migration_trials_results:
+        for idx, resource_idx, time, energy in migration_trials_results:
             # Maintain T_max constraint
             if time > T_max:
                 continue
@@ -1142,7 +1144,7 @@ def identify_optimal_migration(migration_trials_results, T_final, E_total, T_max
                     efficiency = energy_reduction / time_increase
             
                 heappush(migration_candidates, 
-                        (-efficiency, task_idx, resource_idx, time, energy))
+                        (-efficiency, idx, resource_idx, time, energy))
 
         if not migration_candidates:
             return None
@@ -1199,17 +1201,17 @@ def optimize_task_scheduling(tasks, sequence, T_final, core_powers=[1, 2, 4], cl
        
        # Evaluate all valid migration options
        migration_trials_results = []
-       for task_idx in range(len(tasks)):
+       for idx in range(len(tasks)):
            for possible_execution_unit in range(4):
-               if migration_choices[task_idx, possible_execution_unit]:
+               if migration_choices[idx, possible_execution_unit]:
                    continue
                    
                # Calculate T_total and E_total after migration
                migration_trial_time, migration_trial_energy = evaluate_migration(
-                   tasks, sequence, task_idx, possible_execution_unit, migration_cache
+                   tasks, sequence, idx, possible_execution_unit, migration_cache
                )
                migration_trials_results.append(
-                   (task_idx, possible_execution_unit, 
+                   (idx, possible_execution_unit, 
                     migration_trial_time, migration_trial_energy)
                )
        
@@ -1470,11 +1472,11 @@ def print_validation_report(tasks):
 
 def print_task_graph(tasks):
         for task in tasks:
-            succ_task_ids = [child.id for child in task.succ_task]
-            pred_task_ids = [pred_task.id for pred_task in task.pred_tasks]
+            succ_ids = [child.id for child in task.succ_task]
+            pred_ids = [pred_task.id for pred_task in task.pred_tasks]
             print(f"Task {task.id}:")
-            print(f"  Parents: {pred_task_ids}")
-            print(f"  Children: {succ_task_ids}")
+            print(f"  Parents: {pred_ids}")
+            print(f"  Children: {succ_ids}")
             print()
 
 def print_final_sequences(sequences):
@@ -1493,116 +1495,191 @@ def print_final_sequences(sequences):
        task_list = [t for t in sequence]
        print(f"{label:12}: {task_list}")
 
+def create_and_visualize_task_graph(nodes, save_path=None, formats=None, dpi=300):
+    """
+    Create, visualize, and optionally save a task graph visualization.
+    
+    Args:
+        nodes: List of Node objects representing tasks
+        save_path: Base path/filename for saving the visualization (without extension)
+        formats: List of formats to save (e.g., ['png', 'pdf', 'svg'])
+        dpi: Resolution for raster formats like PNG (dots per inch)
+    
+    Returns:
+        matplotlib.figure.Figure: The generated graph visualization
+    """
+    # Create directed graph
+    G = nx.DiGraph()
+    
+    # Add nodes and edges
+    for node in nodes:
+        G.add_node(node.id)
+    for node in nodes:
+        for child in node.succ_task:
+            G.add_edge(node.id, child.id)
+    
+    # Create and configure the visualization
+    plt.figure(figsize=(8, 10))
+    pos = nx.nx_agraph.graphviz_layout(G, prog='dot', args='-Grankdir=TB')
+    nx.draw(G, pos, with_labels=True, node_color='lightblue', 
+           node_size=500, font_size=17)
+    nx.draw_networkx_edges(G, pos, arrows=True, arrowsize=15)
+    plt.axis('off')
+    
+    # Save the visualization if a path is provided
+    if save_path and formats:
+        # Create a tight layout to remove extra whitespace
+        plt.tight_layout()
+        
+        # Save in each requested format
+        for fmt in formats:
+            full_path = f"{save_path}.{fmt}"
+            try:
+                # Different handling for vector vs raster formats
+                if fmt in ['pdf', 'svg', 'eps']:
+                    # Vector formats don't need DPI setting
+                    plt.savefig(full_path, format=fmt, bbox_inches='tight',
+                              pad_inches=0.1)
+                else:
+                    # Raster formats (like PNG) use DPI for resolution
+                    plt.savefig(full_path, format=fmt, dpi=dpi, 
+                              bbox_inches='tight', pad_inches=0.1)
+                print(f"Successfully saved visualization as {full_path}")
+            except Exception as e:
+                print(f"Error saving {fmt} format: {str(e)}")
+    
+    return plt.gcf()
+
+
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import random
+
+import matplotlib.pyplot as plt
+
+def plot_gantt(tasks, sequences, title="Gantt Chart"):
+    # Calculate total number of rows (3 cores + 3 cloud phases)
+    num_rows = 6
+    fig, ax = plt.subplots(figsize=(15, 8))
+
+    # Create a dict for quick task lookup by ID
+    task_map = {t.id: t for t in tasks}
+
+    # Helper function for centered text placement remains the same
+    def add_centered_text(ax, start, duration, y_level, task_id):
+        center_x = start + duration / 2
+        
+        renderer = ax.figure.canvas.get_renderer()
+        text_obj = ax.text(0, 0, f"T{task_id}", fontsize=10, fontweight='bold')
+        bbox = text_obj.get_window_extent(renderer=renderer)
+        text_obj.remove()
+        
+        trans = ax.transData.inverted()
+        text_width = trans.transform((bbox.width, 0))[0] - trans.transform((0, 0))[0]
+        
+        if text_width > duration * 0.9:
+            ax.text(center_x, y_level + 0.3, f"T{task_id}",
+                   va='bottom', ha='center',
+                   color='black', fontsize=10, fontweight='bold',
+                   bbox=dict(facecolor='white', edgecolor='none', alpha=0.7, pad=1))
+        else:
+            ax.text(center_x, y_level, f"T{task_id}",
+                   va='center', ha='center',
+                   color='black', fontsize=10, fontweight='bold')
+
+    # Calculate maximum completion time
+    max_completion_time = max(
+        max(t.FT_l, t.FT_wr) if t.FT_wr > 0 else t.FT_l
+        for t in tasks
+    )
+
+    # Initialize lists for y-axis ticks and labels
+    yticks = []
+    ytick_labels = []
+
+    # Define colors for different execution types
+    colors = {
+        'core': 'lightcoral',
+        'sending': 'lightgreen',
+        'computing': 'lightblue',
+        'receiving': 'plum'
+    }
+
+    # Define y-positions for each resource type
+    # We'll put cloud phases at the bottom, in correct order
+    y_positions = {
+        'Core 1': 5,
+        'Core 2': 4,
+        'Core 3': 3,
+        'Cloud Sending': 2,    # Sending first
+        'Cloud Computing': 1,  # Computing second
+        'Cloud Receiving': 0   # Receiving last
+    }
+
+    # Process local core tasks
+    for core_idx in range(3):
+        y_level = y_positions[f'Core {core_idx+1}']
+        yticks.append(y_level)
+        ytick_labels.append(f'Core {core_idx+1}')
+        
+        if core_idx < len(sequences):
+            for task_id in sequences[core_idx]:
+                task = task_map[task_id]
+                if task.assignment == core_idx:
+                    start_time = task.execution_unit_task_start_times[core_idx]
+                    duration = task.core_execution_times[core_idx]
+                    
+                    ax.barh(y_level, duration, left=start_time, height=0.4,
+                           align='center', color=colors['core'], edgecolor='black')
+                    add_centered_text(ax, start_time, duration, y_level, task.id)
+
+    # Process cloud tasks - now in correct order
+    cloud_phases = [
+        ('Cloud Sending', 'sending', 
+         lambda t: (t.execution_unit_task_start_times[3], t.cloud_execution_times[0])),
+        ('Cloud Computing', 'computing', 
+         lambda t: (t.RT_c, t.cloud_execution_times[1])),
+        ('Cloud Receiving', 'receiving', 
+         lambda t: (t.RT_wr, t.cloud_execution_times[2]))
+    ]
+
+    # Add cloud phases in specified order
+    for phase_label, color_key, time_func in cloud_phases:
+        y_level = y_positions[phase_label]
+        yticks.append(y_level)
+        ytick_labels.append(phase_label)
+        
+        if len(sequences) > 3:  # If we have cloud tasks
+            for task_id in sequences[3]:
+                task = task_map[task_id]
+                if not task.is_core_task:
+                    start, duration = time_func(task)
+                    
+                    ax.barh(y_level, duration, left=start, height=0.4,
+                           align='center', color=colors[color_key], edgecolor='black')
+                    add_centered_text(ax, start, duration, y_level, task.id)
+
+    # Configure chart appearance
+    ax.set_yticks(yticks)
+    ax.set_yticklabels(ytick_labels)
+    ax.set_xlabel("Time")
+    ax.set_ylabel("Execution Unit")
+    ax.set_title(title)
+    ax.grid(True, axis='x', linestyle='--', alpha=0.7)
+
+    # Set axis limits
+    ax.set_xlim(0, max_completion_time + 1)
+    ax.set_xticks(range(0, int(max_completion_time) + 2))
+
+    # Add legend
+    legend_elements = [plt.Rectangle((0, 0), 1, 1, facecolor=color, edgecolor='black', label=label)
+                      for label, color in colors.items()]
+    ax.legend(handles=legend_elements, loc='upper right')
+
+    plt.tight_layout()
+    plt.show()
+
 if __name__ == '__main__':
-    """
-    task20 = Task(id=20, pred_tasks=None, succ_task=[])
-    task19 = Task(id=19, pred_tasks=None, succ_task=[task20])
-    task18 = Task(id=18, pred_tasks=None, succ_task=[task20])
-    task17 = Task(id=17, pred_tasks=None, succ_task=[task20])
-    task16 = Task(id=16, pred_tasks=None, succ_task=[task19])
-    task15 = Task(id=15, pred_tasks=None, succ_task=[task19])
-    task14 = Task(id=14, pred_tasks=None, succ_task=[task18, task19])
-    task13 = Task(id=13, pred_tasks=None, succ_task=[task17, task18])
-    task12 = Task(id=12, pred_tasks=None, succ_task=[task17])
-    task11 = Task(id=11, pred_tasks=None, succ_task=[task15, task16])
-    task10 = Task(id=10, pred_tasks=None, succ_task=[task11,task15])
-    task9 = Task(id=9, pred_tasks=None, succ_task=[task13,task14])
-    task8 = Task(id=8, pred_tasks=None, succ_task=[task12,task13])
-    task7 = Task(id=7, pred_tasks=None, succ_task=[task12])
-    task6 = Task(id=6, pred_tasks=None, succ_task=[task10,task11])
-    task5 = Task(id=5, pred_tasks=None, succ_task=[task9,task10])
-    task4 = Task(id=4, pred_tasks=None, succ_task=[task8,task9])
-    task3 = Task(id=3, pred_tasks=None, succ_task=[task7, task8])
-    task2 = Task(id=2, pred_tasks=None, succ_task=[task7])
-    task1 = Task(id=1, pred_tasks=None, succ_task=[task7])
-    task1.pred_tasks = []
-    task2.pred_tasks = []
-    task3.pred_tasks = []
-    task4.pred_tasks = []
-    task5.pred_tasks = []
-    task6.pred_tasks = []
-    task7.pred_tasks = [task1,task2,task3]
-    task8.pred_tasks = [task3, task4]
-    task9.pred_tasks = [task4,task5]
-    task10.pred_tasks = [task5, task6]
-    task11.pred_tasks = [task6, task10]
-    task12.pred_tasks = [task7, task8]
-    task13.pred_tasks = [task8, task9]
-    task14.pred_tasks = [task9, task10]
-    task15.pred_tasks = [task10, task11]
-    task16.pred_tasks = [task11]
-    task17.pred_tasks = [task12, task13]
-    task18.pred_tasks = [task13, task14]
-    task19.pred_tasks = [task14, task15,task16]
-    task20.pred_tasks = [task17, task18,task19]
-
-    tasks = [task1, task2, task3, task4, task5, task6, task7, task8, task9, task10,task11,task12,task13,task14,task15,task16,task17,task18,task19,task20]
-
-    task10 = Task(id=10, pred_tasks=None, succ_task=[])
-    task9 = Task(id=9, pred_tasks=None, succ_task=[task10])
-    task8 = Task(id=8, pred_tasks=None, succ_task=[task9])
-    task7 = Task(id=7, pred_tasks=None, succ_task=[task9,task10])
-    task6 = Task(id=6, pred_tasks=None, succ_task=[task10])
-    task5 = Task(id=5, pred_tasks=None, succ_task=[task6])
-    task4 = Task(id=4, pred_tasks=None, succ_task=[task7,task8])
-    task3 = Task(id=3, pred_tasks=None, succ_task=[task7, task8])
-    task2 = Task(id=2, pred_tasks=None, succ_task=[task5,task7])
-    task1 = Task(id=1, pred_tasks=None, succ_task=[task2, task3, task4])
-    task1.pred_tasks = []
-    task2.pred_tasks = [task1]
-    task3.pred_tasks = [task1]
-    task4.pred_tasks = [task1]
-    task5.pred_tasks = [task2]
-    task6.pred_tasks = [task5]
-    task7.pred_tasks = [task2,task3,task4]
-    task8.pred_tasks = [task3, task4]
-    task9.pred_tasks = [task7,task8]
-    task10.pred_tasks = [task6, task7, task9]
-    tasks = [task1, task2, task3, task4, task5, task6, task7, task8, task9, task10]
-
-    task20 = Task(id=20, pred_tasks=None, succ_task=[])
-    task19 = Task(id=19, pred_tasks=None, succ_task=[])
-    task18 = Task(id=18, pred_tasks=None, succ_task=[])
-    task17 = Task(id=17, pred_tasks=None, succ_task=[])
-    task16 = Task(id=16, pred_tasks=None, succ_task=[task19])
-    task15 = Task(id=15, pred_tasks=None, succ_task=[task19])
-    task14 = Task(id=14, pred_tasks=None, succ_task=[task18, task19])
-    task13 = Task(id=13, pred_tasks=None, succ_task=[task17, task18])
-    task12 = Task(id=12, pred_tasks=None, succ_task=[task17])
-    task11 = Task(id=11, pred_tasks=None, succ_task=[task15, task16])
-    task10 = Task(id=10, pred_tasks=None, succ_task=[task11,task15])
-    task9 = Task(id=9, pred_tasks=None, succ_task=[task13,task14])
-    task8 = Task(id=8, pred_tasks=None, succ_task=[task12,task13])
-    task7 = Task(id=7, pred_tasks=None, succ_task=[task12])
-    task6 = Task(id=6, pred_tasks=None, succ_task=[task10,task11])
-    task5 = Task(id=5, pred_tasks=None, succ_task=[task9,task10])
-    task4 = Task(id=4, pred_tasks=None, succ_task=[task8,task9])
-    task3 = Task(id=3, pred_tasks=None, succ_task=[task7, task8])
-    task2 = Task(id=2, pred_tasks=None, succ_task=[task7,task8])
-    task1 = Task(id=1, pred_tasks=None, succ_task=[task7])
-    task1.pred_tasks = []
-    task2.pred_tasks = []
-    task3.pred_tasks = []
-    task4.pred_tasks = []
-    task5.pred_tasks = []
-    task6.pred_tasks = []
-    task7.pred_tasks = [task1,task2,task3]
-    task8.pred_tasks = [task3, task4]
-    task9.pred_tasks = [task4,task5]
-    task10.pred_tasks = [task5, task6]
-    task11.pred_tasks = [task6, task10]
-    task12.pred_tasks = [task7, task8]
-    task13.pred_tasks = [task8, task9]
-    task14.pred_tasks = [task9, task10]
-    task15.pred_tasks = [task10, task11]
-    task16.pred_tasks = [task11]
-    task17.pred_tasks = [task12, task13]
-    task18.pred_tasks = [task13, task14]
-    task19.pred_tasks = [task14, task15,task16]
-    task20.pred_tasks = [task12]
-
-    tasks = [task1, task2, task3, task4, task5, task6, task7, task8, task9, task10,task11,task12,task13,task14,task15,task16,task17,task18,task19,task20]
-    """
 
     task10 = Task(10)
     task9 = Task(9, succ_task=[task10])
@@ -1625,8 +1702,173 @@ if __name__ == '__main__':
     task2.pred_tasks = [task1]
     task1.pred_tasks = []
     tasks = [task1, task2, task3, task4, task5, task6, task7, task8, task9, task10]
+    
+    task20 = Task(20)
+    task19 = Task(19, succ_task=[])  # Exit task
+    task18 = Task(18, succ_task=[task20])
+    task17 = Task(17, succ_task=[])  # Exit task
+    task16 = Task(16, succ_task=[task19])
+    task15 = Task(15, succ_task=[task19])
+    task14 = Task(14, succ_task=[task18])
+    task13 = Task(13, succ_task=[task17, task18])
+    task12 = Task(12, succ_task=[task17])
+    task11 = Task(11, succ_task=[task15, task16])
+    task10 = Task(10, succ_task=[task11,task15])
+    task9 = Task(9, succ_task=[task13,task14])
+    task8 = Task(8, succ_task=[task12,task13])
+    task7 = Task(7, succ_task=[task12])
+    task6 = Task(6, succ_task=[task10,task11])
+    task5 = Task(5, succ_task=[task9,task10])
+    task4 = Task(4, succ_task=[task8,task9])
+    task3 = Task(3, pred_tasks=[], succ_task=[task7, task8])  # Entry task
+    task2 = Task(2, pred_tasks=[], succ_task=[task7,task8])   # Entry task
+    task1 = Task(1, pred_tasks=[], succ_task=[task4, task5, task6])  # Entry task
+    task20.pred_tasks = [task18]
+    task19.pred_tasks = [task15,task16]
+    task18.pred_tasks = [task13, task14]
+    task17.pred_tasks = [task12, task13]
+    task16.pred_tasks = [task11]
+    task15.pred_tasks = [task10, task11]
+    task14.pred_tasks = [task9]
+    task13.pred_tasks = [task8, task9]
+    task12.pred_tasks = [task7, task8]
+    task11.pred_tasks = [task6, task10]
+    task10.pred_tasks = [task5, task6]
+    task9.pred_tasks = [task4,task5]
+    task8.pred_tasks = [task2,task3, task4]
+    task7.pred_tasks = [task2,task3]
+    task6.pred_tasks = [task1]
+    task5.pred_tasks = [task1]
+    task4.pred_tasks = [task1]
+
+    tasks = [task1, task2, task3, task4, task5, task6, task7, task8, task9, task10,
+        task11, task12, task13, task14, task15, task16, task17, task18, task19, task20]
+
+    task10 = Task(10)
+    task9 = Task(9, succ_task=[task10])
+    task8 = Task(8, succ_task=[task10])
+    task7 = Task(7, succ_task=[task8, task9])
+    task6 = Task(6, succ_task=[task7, task8])
+    task5 = Task(5, succ_task=[task7])
+    task4 = Task(4, succ_task=[task6])
+    task3 = Task(3, succ_task=[task5, task6])
+    task2 = Task(2, succ_task=[task4, task5])
+    task1 = Task(1, succ_task=[task2, task3])
+    task10.pred_tasks = [task8, task9]
+    task9.pred_tasks = [task7]
+    task8.pred_tasks = [task6, task7]
+    task7.pred_tasks = [task5, task6]
+    task6.pred_tasks = [task3, task4]
+    task5.pred_tasks = [task2, task3]
+    task4.pred_tasks = [task2]
+    task3.pred_tasks = [task1]
+    task2.pred_tasks = [task1]
+    task1.pred_tasks = []
+
+    tasks = [task1, task2, task3, task4, task5, task6, task7, task8, task9, task10]
+
+    task20 = Task(20)
+    task19 = Task(19, succ_task=[task20])
+    task18 = Task(18, succ_task=[task20])
+    task17 = Task(17, succ_task=[task20])
+    task16 = Task(16, succ_task=[task19])
+    task15 = Task(15, succ_task=[task19])
+    task14 = Task(14, succ_task=[task18, task19])
+    task13 = Task(13, succ_task=[task17, task18])
+    task12 = Task(12, succ_task=[task17])
+    task11 = Task(11, succ_task=[task15, task16])
+    task10 = Task(10, succ_task=[task11,task15])
+    task9 = Task(9, succ_task=[task13,task14])
+    task8 = Task(8, succ_task=[task12,task13])
+    task7 = Task(7, succ_task=[task12])
+    task6 = Task(6, succ_task=[task10,task11])
+    task5 = Task(5, succ_task=[task9,task10])
+    task4 = Task(4, succ_task=[task8,task9])
+    task3 = Task(3, succ_task=[task7, task8])
+    task2 = Task(2, succ_task=[task7,task8])
+    task1 = Task(1, succ_task=[task2, task3, task4, task5, task6])
+    task1.pred_tasks = []
+    task2.pred_tasks = [task1]
+    task3.pred_tasks = [task1]
+    task4.pred_tasks = [task1] 
+    task5.pred_tasks = [task1]
+    task6.pred_tasks = [task1]
+    task7.pred_tasks = [task2,task3]
+    task8.pred_tasks = [task2,task3, task4]
+    task9.pred_tasks = [task4,task5]
+    task10.pred_tasks = [task5, task6]
+    task11.pred_tasks = [task6, task10]
+    task12.pred_tasks = [task7, task8]
+    task13.pred_tasks = [task8, task9]
+    task14.pred_tasks = [task9, task10]
+    task15.pred_tasks = [task10, task11]
+    task16.pred_tasks = [task11]
+    task17.pred_tasks = [task12, task13]
+    task18.pred_tasks = [task13, task14]
+    task19.pred_tasks = [task14, task15,task16]
+    task20.pred_tasks = [task17, task18,task19]
+
+    tasks = [task1, task2, task3, task4, task5, task6, task7, task8, task9, task10,
+        task11, task12, task13, task14, task15, task16, task17, task18, task19, task20]
+
+    task20 = Task(20)
+    task19 = Task(19, succ_task=[task20])
+    task18 = Task(18, succ_task=[task20])
+    task17 = Task(17, succ_task=[task20])
+    task16 = Task(16, succ_task=[task19])
+    task15 = Task(15, succ_task=[task19])
+    task14 = Task(14, succ_task=[task18, task19])
+    task13 = Task(13, succ_task=[task17, task18])
+    task12 = Task(12, succ_task=[task17])
+    task11 = Task(11, succ_task=[task15, task16])
+    task10 = Task(10, succ_task=[task11,task15])
+    task9 = Task(9, succ_task=[task13,task14])
+    task8 = Task(8, succ_task=[task12,task13])
+    task7 = Task(7, succ_task=[task12])
+    task6 = Task(6, succ_task=[task10,task11])
+    task5 = Task(5, succ_task=[task9,task10])
+    task4 = Task(4, succ_task=[task8,task9])
+    task3 = Task(3, succ_task=[task7, task8])
+    task2 = Task(2, succ_task=[task7])
+    task1 = Task(1, succ_task=[task7])
+    task1.pred_tasks = []
+    task2.pred_tasks = []
+    task3.pred_tasks = []
+    task4.pred_tasks = []
+    task5.pred_tasks = []
+    task6.pred_tasks = []
+    task7.pred_tasks = [task1,task2,task3]
+    task8.pred_tasks = [task3, task4]
+    task9.pred_tasks = [task4,task5]
+    task10.pred_tasks = [task5, task6]
+    task11.pred_tasks = [task6, task10]
+    task12.pred_tasks = [task7, task8]
+    task13.pred_tasks = [task8, task9]
+    task14.pred_tasks = [task9, task10]
+    task15.pred_tasks = [task10, task11]
+    task16.pred_tasks = [task11]
+    task17.pred_tasks = [task12, task13]
+    task18.pred_tasks = [task13, task14]
+    task19.pred_tasks = [task14, task15, task16]
+    task20.pred_tasks = [task17, task18, task19]
+    tasks = [task1, task2, task3, task4, task5, task6, task7, task8, task9, task10, 
+            task11, task12, task13, task14, task15, task16, task17, task18, task19, task20]
+
 
     print_task_graph(tasks)
+    create_and_visualize_task_graph(tasks, 'graph', ['png'], dpi=600)
+
+# Save both vector and raster formats
+    create_and_visualize_task_graph(
+    tasks, 
+    'graph_multiple', 
+    ['png', 'pdf', 'svg'], 
+    dpi=300
+    )
+
+    # Just display without saving
+    #create_and_visualize_task_graph(tasks)
+    #plt.show()
     
     primary_assignment(tasks)
     task_prioritizing(tasks)
@@ -1639,6 +1881,7 @@ if __name__ == '__main__':
     print("INITIAL TASK SCHEDULE: ")
     print_task_schedule(tasks)
     print_validation_report(tasks)
+    plot_gantt(tasks, sequence, title="Initial Schedule")
     #check_mcc_constraints(tasks)
 
     tasks2, sequence = optimize_task_scheduling(tasks, sequence, T_final, core_powers=[1, 2, 4], cloud_sending_power=0.5)
@@ -1652,4 +1895,5 @@ if __name__ == '__main__':
     print("FINAL TASK SCHEDULE: ")
     print_task_schedule(tasks2)
     print_validation_report(tasks2)
+    plot_gantt(tasks, sequence, title="Final Schedule")
     #check_mcc_constraints(tasks2)
