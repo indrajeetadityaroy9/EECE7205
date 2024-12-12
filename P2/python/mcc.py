@@ -2,16 +2,12 @@ from copy import deepcopy
 import bisect
 from dataclasses import dataclass
 from collections import deque
-import numpy as np
 from heapq import heappush, heappop
 from enum import Enum
+import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
 
-# Dictionary storing execution times for tasks on different cores
-# Key: task ID (1-20)
-# Value: List of execution times [core1_time, core2_time, core3_time]
-# This implements T_i^l_k from Section II.B of the paper
 core_execution_times = {
     1: [9, 7, 5],
     2: [8, 6, 5],
@@ -35,236 +31,102 @@ core_execution_times = {
     20: [11, 8, 5]
 }
 
-# Cloud execution parameters from Section II.B of the paper:
-# - T_send: Time to send task to cloud (T_i^s in paper)
-# - T_cloud: Cloud computation time (T_i^c in paper) 
-# - T_receive: Time to receive results (T_i^r in paper)
 cloud_execution_times = [3, 1, 1]
 
 class SchedulingState(Enum):
-    # States corresponding to the two-step algorithm in Section III:
-    UNSCHEDULED = 0      # Task not yet processed
-    SCHEDULED = 1        # After initial scheduling (Step 1: minimal-delay scheduling)
-    KERNEL_SCHEDULED = 2  # After task migration (Step 2: energy optimization)
+    UNSCHEDULED = 0
+    SCHEDULED = 1
+    KERNEL_SCHEDULED = 2
 
 @dataclass
 class TaskMigrationState:
-    # Class to track task migration decisions as described in Section III.B
-    time: float          # T_total: Total completion time after migration
-    energy: float        # E_total: Total energy consumption after migration
-    efficiency: float    # Energy reduction per unit time (used for migration decisions)
-    task_index: int      # v_tar: Task selected for migration
-    target_execution_unit: int # k_tar: Target execution unit (core or cloud)
+    time: float
+    energy: float
+    efficiency: float
+    task_index: int
+    target_execution_unit: int
 
 class Task(object):
     def __init__(self, id, pred_tasks=None, succ_task=None):
-        # Basic task graph structure (Section II.A)
-        self.id = id                      # Task identifier vi in directed acyclic graph G=(V,E) 
-        self.pred_tasks = pred_tasks or [] # pred(vi): Set of immediate predecessors in task graph
-        self.succ_task = succ_task or []   # succ(vi): Set of immediate successors in task graph
-
-        # Task execution timing parameters (Section II.B)
-        # Local execution times for each core k (equation 7)
-        self.core_execution_times = core_execution_times[id]   # Ti,k^l: execution time on k-th core
-        
-        # Cloud execution phases (Section II.B):
-        # [Ti^s: RF sending phase time,
-        #  Ti^c: cloud computing phase time, 
-        #  Ti^r: RF receiving phase time]
-        self.cloud_execution_times = cloud_execution_times     
-
-        # Task completion timing parameters (Section II.C)
-        # Finish Times for different execution units:
-        self.FT_l = 0       # FTi^l:  Local core finish time
-        self.FT_ws = 0      # FTi^ws: Wireless sending finish time
-        self.FT_c = 0       # FTi^c:  Cloud computation finish time  
-        self.FT_wr = 0      # FTi^wr: Wireless receiving finish time
-
-        # Ready Times (equations 3-6):
-        self.RT_l = -1      # RTi^l:  Ready time for local execution
-        self.RT_ws = -1     # RTi^ws: Ready time for wireless sending
-        self.RT_c = -1      # RTi^c:  Ready time for cloud execution
-        self.RT_wr = -1     # RTi^wr: Ready time for receiving results
-
-        # Task scheduling parameters (Section III)
-        # Priority score from equation (15) used in initial scheduling
-        self.priority_score = None     # priority(vi) = wi + max(priority(vj))
-        
-        # Execution assignment (Section II.B):
-        # ki = 0: offloaded to cloud
-        # ki > 0: executed on local core ki
+        self.id = id
+        self.pred_tasks = pred_tasks or []
+        self.succ_task = succ_task or []
+        self.core_execution_times = core_execution_times[id]
+        self.cloud_execution_times = cloud_execution_times
+        self.FT_l = 0 
+        self.FT_ws = 0
+        self.FT_c = 0  
+        self.FT_wr = 0
+        self.RT_l = -1
+        self.RT_ws = -1
+        self.RT_c = -1
+        self.RT_wr = -1
+        self.priority_score = None
         self.assignment = -2           
-        
-        # Flag to track if task is assigned to local core vs cloud
         self.is_core_task = False      
-        
-        # Start times for possible execution units (used in scheduling)
-        # Index 0: cloud, Indices 1-3: local cores
         self.execution_unit_task_start_times = [-1,-1,-1,-1] 
-        
-        # Final completion time for the task
         self.execution_finish_time = -1
-        
-        # Current state in two-step scheduling algorithm (Section III):
-        # - UNSCHEDULED: Initial state
-        # - SCHEDULED: After initial minimal-delay scheduling
-        # - KERNEL_SCHEDULED: After energy optimization
         self.is_scheduled = SchedulingState.UNSCHEDULED
 
 def total_time(tasks):
-    # Implementation of total completion time calculation T_total from equation (10):
-    # T_total = max(max(FTi^l, FTi^wr))
-    #           vi∈exit_tasks
-    
-    # Find the maximum completion time among all exit tasks
     return max(
-        # For each exit task vi, compute max(FTi^l, FTi^wr) where:
-        # - FTi^l: Finish time if task executes on local core
-        # - FTi^wr: Finish time if task executes on cloud (when results are received)
-        # If FTi^l = 0, task executed on cloud
-        # If FTi^wr = 0, task executed locally
-        max(task.FT_l, task.FT_wr) 
-        
-        # Only consider exit tasks (tasks with no successors)
-        # This implements the "exit tasks" condition from equation (10)
+        max(task.FT_l, task.FT_wr)
         for task in tasks
         if not task.succ_task  
     )
 
 def calculate_energy_consumption(task, core_powers, cloud_sending_power):
-    # Calculate energy consumption for a single task vi
-    # Based on equations (7) and (8) from Section II.D
-    
-    # For tasks executing on local cores (ki > 0)
     if task.is_core_task:
-        # Implement equation (7): Ei,k^l = Pk × Ti,k^l where:
-        # - Pk: Power consumption of k-th core (core_powers[k])
-        # - Ti,k^l: Execution time of task vi on core k
-        # - task.assignment: Selected core k for execution
         return core_powers[task.assignment] * task.core_execution_times[task.assignment]
-    
-    # For tasks offloaded to cloud (ki = 0)
     else:
-        # Implement equation (8): Ei^c = P^s × Ti^s where:
-        # - P^s: Power consumption of RF component for sending
-        # - Ti^s: Time required to send task vi to cloud
         return cloud_sending_power * task.cloud_execution_times[0]
 
 def total_energy(tasks, core_powers, cloud_sending_power):
-    # Calculate total energy consumption E^total
-    # Implements equation (9) from Section II.D:
-    # E^total = ∑(i=1 to N) Ei where:
-    # - N: Total number of tasks
-    # - Ei: Energy consumption of task vi
-    # - Ei equals either Ei,k^l (local) or Ei^c (cloud)
     return sum(
         calculate_energy_consumption(task, core_powers, cloud_sending_power) 
         for task in tasks
     )
 
 def primary_assignment(tasks):
-    """
-    Implements the "Primary Assignment" phase described in Section III.A.1.
-    This is the first phase of the initial scheduling algorithm that determines
-    which tasks should be considered for cloud execution.
-    """
     for task in tasks:
-        # Calculate T_i^l_min (minimum local execution time)
-        # Implements equation (11): T_i^l_min = min(1≤k≤K) T_i,k^l
-        # where K is the number of local cores
-        # This represents the best-case local execution scenario
-        # by choosing the fastest available core
         t_l_min = min(task.core_execution_times)
+        t_re = (task.cloud_execution_times[0] + task.cloud_execution_times[1] + task.cloud_execution_times[2])
 
-        # Calculate T_i^re (remote execution time)
-        # Implements equation (12): T_i^re = T_i^s + T_i^c + T_i^r
-        # This represents total time for cloud execution including:
-        # T_i^s: Time to send task specification and input data
-        # T_i^c: Time for cloud computation
-        # T_i^r: Time to receive results
-        t_re = (task.cloud_execution_times[0] +  # T_i^s (send)
-                task.cloud_execution_times[1] +  # T_i^c (cloud)
-                task.cloud_execution_times[2])   # T_i^r (receive)
-
-        # Task assignment decision
-        # If T_i^re < T_i^l_min, offloading to cloud will save time
-        # This implements the cloud task selection criteria from Section III.A.1:
         if t_re < t_l_min:
-            task.is_core_task = False  # Mark as cloud task
+            task.is_core_task = False
         else:
-            task.is_core_task = True   # Mark for local execution
+            task.is_core_task = True
 
 def task_prioritizing(tasks):
-    """
-    Implements the "Task Prioritizing" phase described in Section III.A.2.
-    Calculates priority levels for each task to determine scheduling order.
-    """
     w = [0] * len(tasks)
-    # Step 1: Calculate computation costs (wi) for each task
     for i, task in enumerate(tasks):
         if not task.is_core_task:  
-            # For cloud tasks:
-            # Implement equation (13): wi = Ti^re
-            # where Ti^re is total remote execution time including:
-            # - Data sending time (Ti^s)
-            # - Cloud computation time (Ti^c)
-            # - Result receiving time (Ti^r)
-            w[i] = (task.cloud_execution_times[0] +   # Ti^s 
-                   task.cloud_execution_times[1] +    # Ti^c
-                   task.cloud_execution_times[2])     # Ti^r
+            w[i] = (task.cloud_execution_times[0] +  task.cloud_execution_times[1] +  task.cloud_execution_times[2])
         else:  
-            # For local tasks:
-            # Implement equation (14): wi = avg(1≤k≤K) Ti,k^l
-            # Average computation time across all K cores
             w[i] = sum(task.core_execution_times) / len(task.core_execution_times)
-
-    # Cache for memoization of priority calculations
-    # This optimizes recursive calculations for tasks in cycles
     computed_priority_scores = {}
 
     def calculate_priority(task):
-        """
-        Recursive implementation of priority calculation.
-        Implements equations (15) and (16) from the paper.
-        """
-        # Memoization check
         if task.id in computed_priority_scores:
             return computed_priority_scores[task.id]
 
-        # Base case: Exit tasks
-        # Implement equation (16): priority(vi) = wi for vi ∈ exit_tasks
         if task.succ_task == []:
             computed_priority_scores[task.id] = w[task.id - 1]
             return w[task.id - 1]
 
-        # Recursive case: Non-exit tasks
-        # Implement equation (15): 
-        # priority(vi) = wi + max(vj∈succ(vi)) priority(vj)
-        # This represents length of critical path from task to exit
-        max_successor_priority = max(calculate_priority(successor) 
-                                   for successor in task.succ_task)
+        max_successor_priority = max(calculate_priority(successor) for successor in task.succ_task)
         task_priority = w[task.id - 1] + max_successor_priority
         computed_priority_scores[task.id] = task_priority
         return task_priority
 
-    # Calculate priorities for all tasks using recursive algorithm
     for task in tasks:
         calculate_priority(task)
 
-    # Update priority scores in task objects
     for task in tasks:
         task.priority_score = computed_priority_scores[task.id]
 
 class InitialTaskScheduler:
-    """
-    Implements the initial scheduling algorithm described in Section III.A.
-    This is Step One of the two-step algorithm, focusing on minimal-delay scheduling.
-    """
     def __init__(self, tasks, num_cores=3):
-        """
-        Initialize scheduler with tasks and resources.
-        Tracks timing for both local cores and cloud communication channels.
-        """
         self.tasks = tasks
         self.k = num_cores  # K cores from paper
         
@@ -278,21 +140,11 @@ class InitialTaskScheduler:
         self.sequences = [[] for _ in range(self.k + 1)]
         
     def get_priority_ordered_tasks(self):
-        """
-        Orders tasks by priority scores calculated in task_prioritizing().
-        Implements ordering described in Section III.A.2, equation (15).
-        """
         task_priority_list = [(task.priority_score, task.id) for task in self.tasks]
         task_priority_list.sort(reverse=True)  # Higher priority first
         return [item[1] for item in task_priority_list]
         
     def classify_entry_tasks(self, priority_order):
-        """
-        Separates tasks into entry and non-entry tasks while maintaining priority order.
-        Implements task classification from Section II.A and III.A.3 of the paper:
-        - Entry tasks: Starting points in the task graph with no dependencies
-        - Non-entry tasks: Tasks that must wait for predecessors to complete
-        """
         entry_tasks = []
         non_entry_tasks = []
 
@@ -314,11 +166,6 @@ class InitialTaskScheduler:
         return entry_tasks, non_entry_tasks
 
     def identify_optimal_local_core(self, task, ready_time=0):
-        """
-        Finds optimal local core assignment for a task to minimize finish time.
-        Implements the local core selection logic from Section III.A.3 for tasks
-        that will be executed locally rather than offloaded to the cloud.
-        """
         # Initialize with worst-case values
         best_finish_time = float('inf')
         best_core = -1
@@ -348,10 +195,6 @@ class InitialTaskScheduler:
         return best_core, best_start_time, best_finish_time
 
     def schedule_on_local_core(self, task, core, start_time, finish_time):
-        """
-        Assigns a task to a local core and updates all relevant timing information.
-        Implements local task scheduling from Section II.C.1 of the paper.
-        """
         # Set task finish time on local core (FTi^l)
         # This is used in equation (10) for total completion time
         task.FT_l = finish_time
@@ -380,10 +223,6 @@ class InitialTaskScheduler:
         self.sequences[core].append(task.id)
 
     def calculate_cloud_phases_timing(self, task):
-        """
-        Calculates timing for the three-phase cloud execution model described in Section II.B.
-        Implements timing calculations from equations (1), (2), (4), (5), and (6).
-        """
         # Phase 1: RF Sending Phase
         # Ready time RTi^ws from equation (4) - when we can start sending
         send_ready = task.RT_ws
@@ -414,10 +253,6 @@ class InitialTaskScheduler:
         return send_ready, send_finish, cloud_ready, cloud_finish, receive_ready, receive_finish
 
     def schedule_on_cloud(self, task, send_ready, send_finish, cloud_ready, cloud_finish, receive_ready, receive_finish):
-        """
-        Schedules a task for cloud execution, updating all timing parameters and resource availability.
-        Implements cloud scheduling from Section II.B and II.C.2 of the paper.
-        """
         # Set timing parameters for three-phase cloud execution
         # Phase 1: RF Sending Phase
         task.RT_ws = send_ready  # When we can start sending (eq. 4)
@@ -464,11 +299,6 @@ class InitialTaskScheduler:
         self.sequences[self.k].append(task.id)
 
     def schedule_entry_tasks(self, entry_tasks):
-        """
-        Schedules tasks with no predecessors (pred(vi) = ∅).
-        Implements initial task scheduling from Section III.A.3 of the paper.
-        Handles both local and cloud execution paths with appropriate ordering.
-        """
         # Track tasks marked for cloud execution
         # These are scheduled after local tasks to enable pipeline staggering
         cloud_entry_tasks = []
@@ -504,10 +334,6 @@ class InitialTaskScheduler:
             self.schedule_on_cloud(task, *timing)
 
     def calculate_non_entry_task_ready_times(self, task):
-        """
-        Calculates ready times for tasks that have predecessors.
-        Implements equations (3) and (4) from Section II.C of the paper.
-        """
         # Calculate local core ready time RTi^l (equation 3)
         # RTi^l = max(vj∈pred(vi)) max(FTj^l, FTj^wr)
         # Task can start on local core when all predecessors are complete:
@@ -533,15 +359,6 @@ class InitialTaskScheduler:
         )
 
     def schedule_non_entry_tasks(self, non_entry_tasks):
-        """
-        Schedules tasks that have predecessors (pred(vi) ≠ ∅).
-        Implements execution unit selection from Section III.A.3 of the paper.
-
-        Makes scheduling decisions by:
-        1. Calculating ready times based on predecessors
-        2. Evaluating both local and cloud execution options
-        3. Selecting execution path that minimizes finish time
-        """
         # Process tasks in priority order (from task_prioritizing)
         for task in non_entry_tasks:
             # Calculate RTi^l and RTi^ws based on predecessor finish times
@@ -580,18 +397,6 @@ class InitialTaskScheduler:
                     self.schedule_on_cloud(task, *timing)
 
 def execution_unit_selection(tasks):
-    """
-    Implements execution unit selection phase described in Section III.A.3.
-    This is the third and final phase of the initial scheduling algorithm
-    after primary assignment and task prioritizing.
-    
-    Args:
-        tasks: List of tasks from the application graph G=(V,E)
-    
-    Returns:
-        sequences: List of task sequences Sk for each execution unit
-                  Used in task migration phase for energy optimization
-    """
     # Initialize scheduler with tasks and K=3 cores
     # As described in Section II.B of the paper
     scheduler = InitialTaskScheduler(tasks, 3)
@@ -625,19 +430,6 @@ def execution_unit_selection(tasks):
     return scheduler.sequences
 
 def construct_sequence(tasks, id, execution_unit, original_sequence):
-   """
-   Implements the linear-time rescheduling algorithm described in Section III.B.2.
-   Constructs new sequence after task migration while preserving task precedence.
-   
-   Args:
-       tasks: List of all tasks in the application
-       id: ID of task v_tar being migrated
-       execution_unit: New execution location k_tar
-       original_sequence: Current Sk sequences for all execution units
-       
-   Returns:
-       Modified sequence sets after migrating the task
-   """
    # Step 1: Create task lookup dictionary for O(1) access
    # Enables quick task object retrieval during sequence construction
    id_to_task = {task.id: task for task in tasks}
@@ -685,19 +477,7 @@ def construct_sequence(tasks, id, execution_unit, original_sequence):
    return original_sequence
 
 class KernelScheduler:
-    """
-    Implements the kernel (rescheduling) algorithm from Section III.B.2.
-    Provides linear-time rescheduling for task migration phase of MCC scheduling.
-    
-    This scheduler maintains state for:
-    - Task dependency tracking
-    - Resource availability
-    - Task sequencing
-    """
     def __init__(self, tasks, sequences):
-        """
-        Initialize kernel scheduler for task migration rescheduling.
-        """
         self.tasks = tasks
         # Sk sequences from equation (17)
         # sequences[k]: Tasks assigned to execution unit k
@@ -724,12 +504,6 @@ class KernelScheduler:
         self.dependency_ready, self.sequence_ready = self.initialize_task_state()
         
     def initialize_task_state(self):
-        """
-        Initializes task readiness tracking vectors described in Section III.B.2.
-        These vectors enable linear-time rescheduling by tracking:
-        1. Task dependency completion (ready1)
-        2. Sequence position readiness (ready2)
-        """
         # Initialize ready1 vector (dependency tracking)
         # ready1[j] is number of immediate predecessors not yet scheduled
         # "ready1[j] is the number of immediate predecessors of task v[j]
@@ -754,14 +528,6 @@ class KernelScheduler:
         return dependency_ready, sequence_ready
     
     def update_task_state(self, task):
-        """
-        Updates readiness vectors (ready1, ready2) for a task after scheduling changes.
-        Implements the vector update logic from Section III.B.2 of the paper.
- 
-        This maintains the invariants required for linear-time scheduling:
-        1. ready1[j] tracks unscheduled predecessors
-        2. ready2[j] tracks sequence position readiness
-        """
         # Only update state for unscheduled tasks
         # Once a task is KERNEL_SCHEDULED, its state is final
         if task.is_scheduled != SchedulingState.KERNEL_SCHEDULED:
@@ -796,15 +562,6 @@ class KernelScheduler:
                     break
     
     def schedule_local_task(self, task):
-        """
-        Schedules a task for local core execution following Section II.C.1.
-        Implements timing calculations for tasks executing on cores.
-
-        Updates:
-            - RTi^l: Local execution ready time (eq. 3)
-            - FTi^l: Local execution finish time 
-            - Core availability tracking
-        """
         # Calculate ready time RTi^l for local execution
         # Implements equation (3): RTi^l = max(vj∈pred(vi)) max(FTj^l, FTj^wr)
         if not task.pred_tasks:
@@ -853,15 +610,6 @@ class KernelScheduler:
         task.FT_wr = -1
     
     def schedule_cloud_task(self, task):
-        """
-        Schedules three-phase cloud execution described in Section II.B.
-        Implements timing calculations for:
-        1. RF sending phase (equations 1, 4)
-        2. Cloud computation phase (equation 5)
-        3. RF receiving phase (equations 2, 6)
-
-        Updates all cloud execution timing parameters and resource availability
-        """
         # Calculate wireless sending ready time RTi^ws
         # Implements equation (4): RTi^ws = max(vj∈pred(vi)) max(FTj^l, FTj^ws)
         if not task.pred_tasks:
@@ -926,10 +674,6 @@ class KernelScheduler:
         task.FT_l = -1
     
     def initialize_queue(self):
-        """
-        Initializes LIFO stack for linear-time scheduling described in Section III.B.2.
-        Identifies initially ready tasks based on both dependency and sequence readiness.
-        """
         # Create LIFO stack (implemented as deque)
         # A task vi is ready for scheduling when both:
         # 1. ready1[i] = 0: All predecessors scheduled
@@ -950,10 +694,6 @@ class KernelScheduler:
 
 
 def kernel_algorithm(tasks, sequences):
-   """
-   Implements the kernel (rescheduling) algorithm from Section III.B.2.
-   Provides linear-time task rescheduling for the task migration phase.
-   """
    # Initialize kernel scheduler with tasks and sequences
    # Handles timing calculations and readiness tracking
    scheduler = KernelScheduler(tasks, sequences)
@@ -1003,10 +743,6 @@ def kernel_algorithm(tasks, sequences):
    return tasks
     
 def generate_cache_key(tasks, idx, target_execution_unit):
-        """
-        Generates cache key for memoizing migration evaluations.
-        Enables efficient evaluation of migration options in Section III.B.
-        """
         # Create cache key from:
         # 1. Task being migrated (v_tar)
         # 2. Target execution unit (k_tar)
@@ -1015,22 +751,6 @@ def generate_cache_key(tasks, idx, target_execution_unit):
                 tuple(task.assignment for task in tasks))
 
 def evaluate_migration(tasks, seqs, idx, target_execution_unit, migration_cache, core_powers=[1, 2, 4], cloud_sending_power=0.5):
-        """
-        Evaluates potential task migration scenario described in Section III.B.
-        Uses caching to avoid redundant calculations.
-
-        Args:
-            tasks: List of all tasks
-            seqs: Current Sk sequences
-            idx: Index of task v_tar to migrate
-            target_execution_unit: Proposed location k_tar
-            migration_cache: Dictionary storing previous migration evaluations
-            
-        Returns:
-            tuple: (T_total, E_total) after migration
-            - T_total: Total completion time (eq. 10)
-            - E_total: Total energy consumption (eq. 9)
-        """
         # Generate cache key for this migration scenario
         cache_key = generate_cache_key(tasks, idx, target_execution_unit)
                     
@@ -1060,9 +780,6 @@ def evaluate_migration(tasks, seqs, idx, target_execution_unit, migration_cache,
         return migration_T, migration_E
 
 def initialize_migration_choices(tasks):
-        """
-        Initializes possible migration choices for each task as described in Section III.B.
-        """
         # Create matrix of migration possibilities:
         # N rows (tasks) x 4 columns (3 cores + cloud)
         # Implements "total of N × K migration choices"
@@ -1084,11 +801,6 @@ def initialize_migration_choices(tasks):
         return migration_choices
 
 def identify_optimal_migration(migration_trials_results, T_final, E_total, T_max):
-        """
-        Identifies optimal task migration as described in Section III.B.
-        Implements two-step selection process for energy reduction while maintaining
-        completion time constraints.
-        """
         # Step 1: Find migrations that reduce energy without increasing time
         # "select the choice that results in the largest energy reduction 
         # compared with the current schedule and no increase in T_total"
@@ -1160,20 +872,6 @@ def identify_optimal_migration(migration_trials_results, T_final, E_total, T_max
         )
 
 def optimize_task_scheduling(tasks, sequence, T_final, core_powers=[1, 2, 4], cloud_sending_power=0.5):
-   """
-   Implements the task migration algorithm from Section III.B of the paper.
-   Optimizes energy consumption while maintaining completion time constraints.
-   
-   Args:
-       tasks: List of tasks from application graph G=(V,E)
-       sequence: Initial Sk sequences from minimal-delay scheduling
-       T_final: Target completion time constraint T_max
-       core_powers: Power consumption Pk for each core k
-       cloud_sending_power: Power consumption P^s for RF sending
-       
-   Returns:
-       tuple: (tasks, sequence) with optimized scheduling
-   """
    # Convert core powers to numpy array for efficient operations 
    core_powers = np.array(core_powers)
    
@@ -1253,11 +951,6 @@ def optimize_task_scheduling(tasks, sequence, T_final, core_powers=[1, 2, 4], cl
    return tasks, sequence
 
 def print_task_schedule(tasks):
-    """
-    Prints formatted task scheduling information with optimized data handling.
-    Shows execution timing for both local core and cloud execution paths.
-    """
-    # Pre-define constant mappings
     ASSIGNMENT_MAPPING = {
         0: "Core 1",
         1: "Core 2",
@@ -1266,7 +959,6 @@ def print_task_schedule(tasks):
         -2: "Not Scheduled"
     }
 
-    # Use list comprehension with conditional formatting
     schedule_data = []
     for task in tasks:
         base_info = {
@@ -1275,15 +967,12 @@ def print_task_schedule(tasks):
         }
 
         if task.is_core_task:
-            # Local core execution timing
             start_time = task.execution_unit_task_start_times[task.assignment]
             schedule_data.append({
                 **base_info,
-                "Execution Window": f"{start_time:.2f} → "
-                                  f"{start_time + task.core_execution_times[task.assignment]:.2f}"
+                "Execution Window": f"{start_time:.2f} → "f"{start_time + task.core_execution_times[task.assignment]:.2f}"
             })
         else:
-            # Cloud execution phases timing
             send_start = task.execution_unit_task_start_times[3]
             send_end = send_start + task.cloud_execution_times[0]
             cloud_end = task.RT_c + task.cloud_execution_times[1]
@@ -1296,7 +985,6 @@ def print_task_schedule(tasks):
                 "Receive Phase": f"{task.RT_wr:.2f} → {receive_end:.2f}"
             })
 
-    # Print formatted output
     print("\nTask Scheduling Details:")
     print("-" * 80)
     
@@ -1307,18 +995,9 @@ def print_task_schedule(tasks):
         print("-" * 40)
 
 def check_schedule_constraints(tasks):
-    """
-    Validates schedule constraints considering cloud task pipelining
-    
-    Args:
-        tasks: List of Task objects with scheduling information
-    Returns:
-        tuple: (is_valid, violations)
-    """
     violations = []
     
     def check_sending_channel():
-        """Verify wireless sending channel is used sequentially"""
         cloud_tasks = [n for n in tasks if not n.is_core_task]
         sorted_tasks = sorted(cloud_tasks, key=lambda x: x.execution_unit_task_start_times[3])
         
@@ -1335,7 +1014,6 @@ def check_schedule_constraints(tasks):
                 })
 
     def check_computing_channel():
-        """Verify cloud computing is sequential"""
         cloud_tasks = [n for n in tasks if not n.is_core_task]
         sorted_tasks = sorted(cloud_tasks, key=lambda x: x.RT_c)
         
@@ -1352,7 +1030,6 @@ def check_schedule_constraints(tasks):
                 })
 
     def check_receiving_channel():
-        """Verify wireless receiving channel is sequential"""
         cloud_tasks = [n for n in tasks if not n.is_core_task]
         sorted_tasks = sorted(cloud_tasks, key=lambda x: x.RT_wr)
         
@@ -1369,13 +1046,10 @@ def check_schedule_constraints(tasks):
                 })
 
     def check_pipelined_dependencies():
-        """Verify dependencies considering pipelined execution"""
         for task in tasks:
-            if not task.is_core_task:  # For cloud tasks
-                # Check if all pred_tasks have completed necessary phases
+            if not task.is_core_task:
                 for pred_task in task.pred_tasks:
                     if pred_task.is_core_task:
-                        # Core pred_task must complete before child starts sending
                         if pred_task.FT_l > task.execution_unit_task_start_times[3]:
                             violations.append({
                                 'type': 'Core-Cloud Dependency Violation',
@@ -1384,7 +1058,6 @@ def check_schedule_constraints(tasks):
                                 'detail': f'Core Task {pred_task.id} finishes at {pred_task.FT_l} but Cloud Task {task.id} starts sending at {task.execution_unit_task_start_times[3]}'
                             })
                     else:
-                        # Cloud pred_task must complete sending before child starts sending
                         if pred_task.FT_ws > task.execution_unit_task_start_times[3]:
                             violations.append({
                                 'type': 'Cloud Pipeline Dependency Violation',
@@ -1392,8 +1065,7 @@ def check_schedule_constraints(tasks):
                                 'child': task.id,
                                 'detail': f'Parent Task {pred_task.id} sending phase ends at {pred_task.FT_ws} but Task {task.id} starts sending at {task.execution_unit_task_start_times[3]}'
                             })
-            else:  # For core tasks
-                # All pred_tasks must complete fully before core task starts
+            else:
                 for pred_task in task.pred_tasks:
                     pred_task_finish = (pred_task.FT_wr 
                                   if not pred_task.is_core_task else pred_task.FT_l)
@@ -1406,9 +1078,8 @@ def check_schedule_constraints(tasks):
                         })
 
     def check_core_execution():
-        """Verify core tasks don't overlap"""
         core_tasks = [n for n in tasks if n.is_core_task]
-        for core_id in range(3):  # Assuming 3 cores
+        for core_id in range(3):
             core_specific_tasks = [t for t in core_tasks if t.assignment == core_id]
             sorted_tasks = sorted(core_specific_tasks, key=lambda x: x.execution_unit_task_start_times[core_id])
             
@@ -1424,38 +1095,14 @@ def check_schedule_constraints(tasks):
                         'detail': f'Task {current.id} finishes at {current.FT_l} but Task {next_task.id} starts at {next_task.execution_unit_task_start_times[core_id]}'
                     })
 
-    # Run all checks
     check_sending_channel()
     check_computing_channel()
     check_receiving_channel()
     check_pipelined_dependencies()
     check_core_execution()
-    
     return len(violations) == 0, violations
 
-"""
-Pipeline Structure:
-Each cloud task follows the three-phase execution described in Section II.B
-"If task vi is offloaded onto the cloud, there are three phases in sequence:
-(i) the RF sending phase,
-(ii) the cloud computing phase, and
-(iii) the RF receiving phase."
-"The local core in the mobile device or the wireless sending channel can only process or send one task at a time, and preemption is not allowed in this framework. On the other hand, the cloud can execute a large number of tasks in parallel as long as there is no dependency among the tasks."
-Task Precedence (Section II.C):
-
-
-For wireless sending (RTws_i): A task can start sending only after all its predecessors have completed their relevant phases
-For cloud computation (RTc_i): A task can start computing after:
-
-It has completed its sending phase
-All its cloud-executed predecessors have finished computing
-
-
-For wireless receiving (RTwr_i): A task can start receiving immediately after cloud computation finishes
-
-"""
 def print_validation_report(tasks):
-    """Print detailed schedule validation report"""
     is_valid, violations = check_schedule_constraints(tasks)
     
     print("\nSchedule Validation Report")
@@ -1482,90 +1129,51 @@ def print_task_graph(tasks):
 def print_final_sequences(sequences):
    print("\Execution Sequences:")
    print("-" * 40)
-   
-   # Label and print each execution sequence
+
    for i, sequence in enumerate(sequences):
-       # Determine execution unit label
        if i < 3:
            label = f"Core {i+1}"
        else:
            label = "Cloud"
-           
-       # Format and print sequence
        task_list = [t for t in sequence]
        print(f"{label:12}: {task_list}")
 
 def create_and_visualize_task_graph(nodes, save_path=None, formats=None, dpi=300):
-    """
-    Create, visualize, and optionally save a task graph visualization.
-    
-    Args:
-        nodes: List of Node objects representing tasks
-        save_path: Base path/filename for saving the visualization (without extension)
-        formats: List of formats to save (e.g., ['png', 'pdf', 'svg'])
-        dpi: Resolution for raster formats like PNG (dots per inch)
-    
-    Returns:
-        matplotlib.figure.Figure: The generated graph visualization
-    """
-    # Create directed graph
     G = nx.DiGraph()
     
-    # Add nodes and edges
     for node in nodes:
         G.add_node(node.id)
     for node in nodes:
         for child in node.succ_task:
             G.add_edge(node.id, child.id)
     
-    # Create and configure the visualization
     plt.figure(figsize=(8, 10))
     pos = nx.nx_agraph.graphviz_layout(G, prog='dot', args='-Grankdir=TB')
-    nx.draw(G, pos, with_labels=True, node_color='lightblue', 
-           node_size=500, font_size=17)
+    nx.draw(G, pos, with_labels=True, node_color='lightblue', node_size=500, font_size=17)
     nx.draw_networkx_edges(G, pos, arrows=True, arrowsize=15)
     plt.axis('off')
-    
-    # Save the visualization if a path is provided
+
     if save_path and formats:
-        # Create a tight layout to remove extra whitespace
         plt.tight_layout()
         
-        # Save in each requested format
         for fmt in formats:
             full_path = f"{save_path}.{fmt}"
             try:
-                # Different handling for vector vs raster formats
                 if fmt in ['pdf', 'svg', 'eps']:
-                    # Vector formats don't need DPI setting
-                    plt.savefig(full_path, format=fmt, bbox_inches='tight',
-                              pad_inches=0.1)
+                    plt.savefig(full_path, format=fmt, bbox_inches='tight',pad_inches=0.1)
                 else:
-                    # Raster formats (like PNG) use DPI for resolution
-                    plt.savefig(full_path, format=fmt, dpi=dpi, 
-                              bbox_inches='tight', pad_inches=0.1)
+                    plt.savefig(full_path, format=fmt, dpi=dpi, bbox_inches='tight', pad_inches=0.1)
                 print(f"Successfully saved visualization as {full_path}")
             except Exception as e:
                 print(f"Error saving {fmt} format: {str(e)}")
     
     return plt.gcf()
 
-
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-import random
-
-import matplotlib.pyplot as plt
-
-def plot_gantt(tasks, sequences, title="Gantt Chart"):
-    # Calculate total number of rows (3 cores + 3 cloud phases)
-    num_rows = 6
+def plot_gantt(tasks, sequences, title="Schedule"):
     fig, ax = plt.subplots(figsize=(15, 8))
 
-    # Create a dict for quick task lookup by ID
     task_map = {t.id: t for t in tasks}
 
-    # Helper function for centered text placement remains the same
     def add_centered_text(ax, start, duration, y_level, task_id):
         center_x = start + duration / 2
         
@@ -1586,18 +1194,15 @@ def plot_gantt(tasks, sequences, title="Gantt Chart"):
             ax.text(center_x, y_level, f"T{task_id}",
                    va='center', ha='center',
                    color='black', fontsize=10, fontweight='bold')
-
-    # Calculate maximum completion time
+            
     max_completion_time = max(
         max(t.FT_l, t.FT_wr) if t.FT_wr > 0 else t.FT_l
         for t in tasks
     )
 
-    # Initialize lists for y-axis ticks and labels
     yticks = []
     ytick_labels = []
 
-    # Define colors for different execution types
     colors = {
         'core': 'lightcoral',
         'sending': 'lightgreen',
@@ -1605,18 +1210,15 @@ def plot_gantt(tasks, sequences, title="Gantt Chart"):
         'receiving': 'plum'
     }
 
-    # Define y-positions for each resource type
-    # We'll put cloud phases at the bottom, in correct order
     y_positions = {
         'Core 1': 5,
         'Core 2': 4,
         'Core 3': 3,
-        'Cloud Sending': 2,    # Sending first
-        'Cloud Computing': 1,  # Computing second
-        'Cloud Receiving': 0   # Receiving last
+        'Cloud Sending': 2,
+        'Cloud Computing': 1,
+        'Cloud Receiving': 0
     }
 
-    # Process local core tasks
     for core_idx in range(3):
         y_level = y_positions[f'Core {core_idx+1}']
         yticks.append(y_level)
@@ -1628,12 +1230,9 @@ def plot_gantt(tasks, sequences, title="Gantt Chart"):
                 if task.assignment == core_idx:
                     start_time = task.execution_unit_task_start_times[core_idx]
                     duration = task.core_execution_times[core_idx]
-                    
-                    ax.barh(y_level, duration, left=start_time, height=0.4,
-                           align='center', color=colors['core'], edgecolor='black')
+                    ax.barh(y_level, duration, left=start_time, height=0.4,align='center', color=colors['core'], edgecolor='black')
                     add_centered_text(ax, start_time, duration, y_level, task.id)
 
-    # Process cloud tasks - now in correct order
     cloud_phases = [
         ('Cloud Sending', 'sending', 
          lambda t: (t.execution_unit_task_start_times[3], t.cloud_execution_times[0])),
@@ -1643,39 +1242,31 @@ def plot_gantt(tasks, sequences, title="Gantt Chart"):
          lambda t: (t.RT_wr, t.cloud_execution_times[2]))
     ]
 
-    # Add cloud phases in specified order
     for phase_label, color_key, time_func in cloud_phases:
         y_level = y_positions[phase_label]
         yticks.append(y_level)
         ytick_labels.append(phase_label)
         
-        if len(sequences) > 3:  # If we have cloud tasks
+        if len(sequences) > 3:
             for task_id in sequences[3]:
                 task = task_map[task_id]
                 if not task.is_core_task:
                     start, duration = time_func(task)
                     
-                    ax.barh(y_level, duration, left=start, height=0.4,
-                           align='center', color=colors[color_key], edgecolor='black')
+                    ax.barh(y_level, duration, left=start, height=0.4,align='center', color=colors[color_key], edgecolor='black')
                     add_centered_text(ax, start, duration, y_level, task.id)
 
-    # Configure chart appearance
     ax.set_yticks(yticks)
     ax.set_yticklabels(ytick_labels)
     ax.set_xlabel("Time")
     ax.set_ylabel("Execution Unit")
     ax.set_title(title)
     ax.grid(True, axis='x', linestyle='--', alpha=0.7)
-
-    # Set axis limits
     ax.set_xlim(0, max_completion_time + 1)
     ax.set_xticks(range(0, int(max_completion_time) + 2))
 
-    # Add legend
-    legend_elements = [plt.Rectangle((0, 0), 1, 1, facecolor=color, edgecolor='black', label=label)
-                      for label, color in colors.items()]
+    legend_elements = [plt.Rectangle((0, 0), 1, 1, facecolor=color, edgecolor='black', label=label)for label, color in colors.items()]
     ax.legend(handles=legend_elements, loc='upper right')
-
     plt.tight_layout()
     plt.show()
 
@@ -1704,9 +1295,9 @@ if __name__ == '__main__':
     tasks = [task1, task2, task3, task4, task5, task6, task7, task8, task9, task10]
     
     task20 = Task(20)
-    task19 = Task(19, succ_task=[])  # Exit task
+    task19 = Task(19, succ_task=[])
     task18 = Task(18, succ_task=[task20])
-    task17 = Task(17, succ_task=[])  # Exit task
+    task17 = Task(17, succ_task=[])
     task16 = Task(16, succ_task=[task19])
     task15 = Task(15, succ_task=[task19])
     task14 = Task(14, succ_task=[task18])
@@ -1720,9 +1311,9 @@ if __name__ == '__main__':
     task6 = Task(6, succ_task=[task10,task11])
     task5 = Task(5, succ_task=[task9,task10])
     task4 = Task(4, succ_task=[task8,task9])
-    task3 = Task(3, pred_tasks=[], succ_task=[task7, task8])  # Entry task
-    task2 = Task(2, pred_tasks=[], succ_task=[task7,task8])   # Entry task
-    task1 = Task(1, pred_tasks=[], succ_task=[task4, task5, task6])  # Entry task
+    task3 = Task(3, pred_tasks=[], succ_task=[task7, task8])
+    task2 = Task(2, pred_tasks=[], succ_task=[task7,task8])
+    task1 = Task(1, pred_tasks=[], succ_task=[task4, task5, task6])
     task20.pred_tasks = [task18]
     task19.pred_tasks = [task15,task16]
     task18.pred_tasks = [task13, task14]
@@ -1854,22 +1445,9 @@ if __name__ == '__main__':
     tasks = [task1, task2, task3, task4, task5, task6, task7, task8, task9, task10, 
             task11, task12, task13, task14, task15, task16, task17, task18, task19, task20]
 
-
     print_task_graph(tasks)
     create_and_visualize_task_graph(tasks, 'graph', ['png'], dpi=600)
 
-# Save both vector and raster formats
-    create_and_visualize_task_graph(
-    tasks, 
-    'graph_multiple', 
-    ['png', 'pdf', 'svg'], 
-    dpi=300
-    )
-
-    # Just display without saving
-    #create_and_visualize_task_graph(tasks)
-    #plt.show()
-    
     primary_assignment(tasks)
     task_prioritizing(tasks)
     sequence = execution_unit_selection(tasks)
@@ -1882,7 +1460,6 @@ if __name__ == '__main__':
     print_task_schedule(tasks)
     print_validation_report(tasks)
     plot_gantt(tasks, sequence, title="Initial Schedule")
-    #check_mcc_constraints(tasks)
 
     tasks2, sequence = optimize_task_scheduling(tasks, sequence, T_final, core_powers=[1, 2, 4], cloud_sending_power=0.5)
 
@@ -1896,4 +1473,3 @@ if __name__ == '__main__':
     print_task_schedule(tasks2)
     print_validation_report(tasks2)
     plot_gantt(tasks, sequence, title="Final Schedule")
-    #check_mcc_constraints(tasks2)

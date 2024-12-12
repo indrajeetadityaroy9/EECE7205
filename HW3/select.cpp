@@ -4,7 +4,6 @@
 #include <cstdlib>
 #include <ctime>
 #include <random>
-
 using namespace std;
 
 int partition(vector<int>& arr, int left, int right, int pivot) {

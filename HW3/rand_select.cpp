@@ -2,7 +2,6 @@
 #include <vector>
 #include <algorithm>
 #include <random>
-
 using namespace std;
 
 int randomized_partition(vector<int>& arr, int left, int right, mt19937& g) {

@@ -5,7 +5,6 @@
 #include <numeric>
 #include <matplot/matplot.h>
 #include <functional>
-
 using namespace std;
 using namespace matplot;
 

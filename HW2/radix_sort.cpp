@@ -2,7 +2,6 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
-
 using namespace std;
 
 void digit_counting_sort(vector<int>& arr, int x) {

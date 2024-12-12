@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <random>
 #include <matplot/matplot.h>
-
 using namespace std;
 using namespace matplot;
 

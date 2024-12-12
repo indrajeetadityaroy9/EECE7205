@@ -3,7 +3,6 @@ import sys
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Increase recursion limit for Merge Sort with large n
 sys.setrecursionlimit(1000000)
 
 def insertion_sort(arr):

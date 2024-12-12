@@ -3,7 +3,6 @@
 #include <string>
 #include <algorithm>
 #include <unordered_set>
-
 using namespace std;
 
 void print_all_lcs(const vector<vector<int>>& C, const vector<vector<char>>& b, const string& s1, int i, int j, string curr_lcs, unordered_set<string>& all_lcs) {

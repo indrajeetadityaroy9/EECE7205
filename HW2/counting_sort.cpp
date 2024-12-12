@@ -2,7 +2,6 @@
 #include <vector>
 #include <algorithm>
 #include <iterator>
-
 using namespace std;
 
 void counting_sort(vector<int>& arr) {
