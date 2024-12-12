@@ -166,27 +166,14 @@ class InitialTaskScheduler:
         return entry_tasks, non_entry_tasks
 
     def identify_optimal_local_core(self, task, ready_time=0):
-        # Initialize with worst-case values
         best_finish_time = float('inf')
         best_core = -1
         best_start_time = float('inf')
 
-        # Try each available core k (1 ≤ k ≤ K)
         for core in range(self.k):
-            # Calculate earliest possible start time on this core
-            # Must be after both:
-            # 1. Task's ready time RTi^l (based on predecessors)
-            # 2. Core's earliest available time (when previous task finishes)
             start_time = max(ready_time, self.core_earliest_ready[core])
-            
-            # Calculate finish time FTi^l using:
-            # - Start time determined above
-            # - Task's execution time on this core (Ti,k^l)
             finish_time = start_time + task.core_execution_times[core]
             
-            # Keep track of core that gives earliest finish time
-            # This implements the "minimizes the task's finish time"
-            # criteria from Section III.A.3
             if finish_time < best_finish_time:
                 best_finish_time = finish_time
                 best_core = core
@@ -195,56 +182,21 @@ class InitialTaskScheduler:
         return best_core, best_start_time, best_finish_time
 
     def schedule_on_local_core(self, task, core, start_time, finish_time):
-        # Set task finish time on local core (FTi^l)
-        # This is used in equation (10) for total completion time
         task.FT_l = finish_time
-        # Set overall execution finish time
-        # Used for precedence constraints and scheduling subsequent tasks
         task.execution_finish_time = finish_time
-        # Initialize execution start times array
-        # Index 0 to k: local cores
-        # Index k+1: cloud
-        # -1 indicates not scheduled on that unit
         task.execution_unit_task_start_times = [-1] * (self.k + 1)
-        # Record actual start time on assigned core
-        # This maintains the scheduling sequence Sk from Section III.B
         task.execution_unit_task_start_times[core] = start_time
-        # Update core availability for next task
-        # Core k cannot execute another task until current task finishes
         self.core_earliest_ready[core] = finish_time
-        # Set task assignment (ki from Section II.B)
-        # ki > 0 indicates local core execution
         task.assignment = core
-        # Mark task as scheduled in initial scheduling phase
         task.is_scheduled = SchedulingState.SCHEDULED
-        # Add task to execution sequence for this core
-        # This implements Sk sequence tracking from Section III.B
-        # Used later for task migration phase
         self.sequences[core].append(task.id)
 
     def calculate_cloud_phases_timing(self, task):
-        # Phase 1: RF Sending Phase
-        # Ready time RTi^ws from equation (4) - when we can start sending
         send_ready = task.RT_ws
-        # Finish time FTi^ws = RTi^ws + Ti^s 
-        # Ti^s = datai/R^s from equation (1)
-        # Time to send task specification and input data
         send_finish = send_ready + task.cloud_execution_times[0]
-        # Phase 2: Cloud Computing Phase
-        # Ready time RTi^c from equation (5)
-        # Can start computing once sending is complete
         cloud_ready = send_finish
-        # Finish time FTi^c = RTi^c + Ti^c
-        # Ti^c is cloud computation time
         cloud_finish = cloud_ready + task.cloud_execution_times[1]
-        # Phase 3: RF Receiving Phase
-        # Ready time RTi^wr from equation (6)
-        # Can start receiving once cloud computation finishes
         receive_ready = cloud_finish
-        # Finish time FTi^wr considering:
-        # 1. When results are ready (receive_ready)
-        # 2. When wireless channel is available (wr_ready)
-        # 3. Time to receive results Ti^r = data'i/R^r from equation (2)
         receive_finish = (
             max(self.wr_ready, receive_ready) + 
             task.cloud_execution_times[2]
@@ -397,246 +349,108 @@ class InitialTaskScheduler:
                     self.schedule_on_cloud(task, *timing)
 
 def execution_unit_selection(tasks):
-    # Initialize scheduler with tasks and K=3 cores
-    # As described in Section II.B of the paper
     scheduler = InitialTaskScheduler(tasks, 3)
-    
-    # Order tasks by priority score from equation (15)
-    # priority(vi) = wi + max(vj∈succ(vi)) priority(vj)
-    # Higher priority indicates task is on critical path
     priority_orderered_tasks = scheduler.get_priority_ordered_tasks()
-    
-    # Classify tasks based on dependencies
-    # Entry tasks: pred(vi) = ∅ (can start immediately)
-    # Non-entry tasks: must wait for predecessors
-    # Maintains priority ordering within each category
     entry_tasks, non_entry_tasks = scheduler.classify_entry_tasks(priority_orderered_tasks)
-    
-    # Two-phase scheduling process:
-    # 1. Schedule entry tasks (no dependencies)
-    #    - Process local tasks first
-    #    - Then handle cloud tasks with pipeline staggering
     scheduler.schedule_entry_tasks(entry_tasks)
-    
-    # 2. Schedule non-entry tasks (with dependencies)
-    #    - Calculate ready times based on predecessors
-    #    - Compare local vs cloud execution times
-    #    - Choose path that minimizes finish time
     scheduler.schedule_non_entry_tasks(non_entry_tasks)
-    
-    # Return task sequences for each execution unit
-    # These Sk sequences are used in Section III.B
-    # for the task migration algorithm
     return scheduler.sequences
 
 def construct_sequence(tasks, id, execution_unit, original_sequence):
-   # Step 1: Create task lookup dictionary for O(1) access
-   # Enables quick task object retrieval during sequence construction
    id_to_task = {task.id: task for task in tasks}
-   
-   # Step 2: Get the target task v_tar for migration
    target_task = id_to_task.get(id)
-   
-   # Step 3: Get ready time for insertion
-   # RTi^l for local cores (k_tar > 0)
-   # RTi^ws for cloud execution (k_tar = 0)
    target_task_rt = target_task.RT_l if target_task.is_core_task else target_task.RT_ws
-   
-   # Step 4: Remove task from original sequence
-   # Implementation of equation (17):
-   # "we will not change the ordering of tasks in the other cores"
    original_assignment = target_task.assignment
    original_sequence[original_assignment].remove(target_task.id)
-   
-   # Step 5: Get sequence for new execution unit
-   # Prepare for ordered insertion based on start times
    new_sequence_task_list = original_sequence[execution_unit]
-   
-   # Get start times for tasks in new sequence
-   # Used to maintain proper task ordering
+
    start_times = [
        id_to_task[id].execution_unit_task_start_times[execution_unit] 
        for id in new_sequence_task_list
    ]
-   
-   # Step 6: Find insertion point using binary search
-   # Implements "insert v_tar into S_k_tar such that v_tar is
-   # executed after all its transitive predecessors and before
-   # all its transitive successors"
+
    insertion_index = bisect.bisect_left(start_times, target_task_rt)
-   
-   # Step 7: Insert task at correct position
-   # Maintains ordered sequence based on start times
    new_sequence_task_list.insert(insertion_index, target_task.id)
-   
-   # Step 8: Update task execution information
-   # Set new assignment k_i and execution type
    target_task.assignment = execution_unit
-   target_task.is_core_task = (execution_unit != 3)  # 3 indicates cloud
-   
+   target_task.is_core_task = (execution_unit != 3)
    return original_sequence
 
 class KernelScheduler:
     def __init__(self, tasks, sequences):
         self.tasks = tasks
-        # Sk sequences from equation (17)
-        # sequences[k]: Tasks assigned to execution unit k
-        # k = 0,1,2: Local cores
-        # k = 3: Cloud execution
         self.sequences = sequences
-        
-        # Resource timing trackers
-        # Track when each execution unit becomes available
-        
-        # RTi^l ready times for local cores (k > 0)
-        # From equation (3): When each core can start next task
-        self.RT_ls = [0] * 3  # Three cores
-        
-        # Ready times for cloud execution phases
-        # [0]: RTi^ws - Wireless sending (eq. 4)
-        # [1]: RTi^c  - Cloud computation (eq. 5)
-        # [2]: RTi^wr - Result receiving (eq. 6)
+        self.RT_ls = [0] * 3
         self.cloud_phases_ready_times = [0] * 3
-        
-        # Initialize task readiness tracking vectors
-        # These implement the ready1 and ready2 vectors
-        # described in Section III.B.2
         self.dependency_ready, self.sequence_ready = self.initialize_task_state()
         
     def initialize_task_state(self):
-        # Initialize ready1 vector (dependency tracking)
-        # ready1[j] is number of immediate predecessors not yet scheduled
-        # "ready1[j] is the number of immediate predecessors of task v[j]
-        # that have not been scheduled"
         dependency_ready = [len(task.pred_tasks) for task in self.tasks]
-
-        # Initialize ready2 vector (sequence position tracking)
-        # ready2[j] indicates if task is ready in its sequence:
-        # -1: Task not in current sequence
-        #  0: Task ready to execute (first in sequence or predecessor completed)
-        #  1: Task waiting for predecessor in sequence
         sequence_ready = [-1] * len(self.tasks)
-
-        # Process each execution sequence Sk
         for sequence in self.sequences:
-            if sequence:  # Non-empty sequence
-                # Mark first task in sequence as ready
-                # "ready2[j] = 0 if all the tasks before task v[j] in
-                # the same sequence have already been scheduled"
+            if sequence:
                 sequence_ready[sequence[0] - 1] = 0
 
         return dependency_ready, sequence_ready
     
     def update_task_state(self, task):
-        # Only update state for unscheduled tasks
-        # Once a task is KERNEL_SCHEDULED, its state is final
         if task.is_scheduled != SchedulingState.KERNEL_SCHEDULED:
-            # Update ready1 vector (dependency tracking)
-            # "ready1[j] by one for all vj ∈ succ(vi)"
-            # Count immediate predecessors that haven't been scheduled
             self.dependency_ready[task.id - 1] = sum(
                 1 for pred_task in task.pred_tasks 
                 if pred_task.is_scheduled != SchedulingState.KERNEL_SCHEDULED
             )
             
-            # Update ready2 vector (sequence position)
-            # Find task's position in its current execution sequence
             for sequence in self.sequences:
                 if task.id in sequence:
                     idx = sequence.index(task.id)
                     if idx > 0:
-                        # Task has predecessor in sequence
-                        # Check if predecessor has been scheduled
                         prev_task = self.tasks[sequence[idx - 1] - 1]
                         self.sequence_ready[task.id - 1] = (
-                            # 1: Waiting for predecessor
-                            # 0: Predecessor completed
                             1 if prev_task.is_scheduled != SchedulingState.KERNEL_SCHEDULED 
                             else 0
                         )
                     else:
-                        # First task in sequence
-                        # "ready2[j] = 0 if all the tasks before task vj
-                        # in the same sequence have already been scheduled"
                         self.sequence_ready[task.id - 1] = 0
                     break
     
     def schedule_local_task(self, task):
-        # Calculate ready time RTi^l for local execution
-        # Implements equation (3): RTi^l = max(vj∈pred(vi)) max(FTj^l, FTj^wr)
         if not task.pred_tasks:
-            # Entry tasks can start immediately
             task.RT_l = 0
         else:
-            # Find latest completion time among predecessors
-            # Consider both local (FTj^l) and cloud (FTj^wr) execution
             pred_task_completion_times = (
                 max(pred_task.FT_l, pred_task.FT_wr) 
                 for pred_task in task.pred_tasks
             )
             task.RT_l = max(pred_task_completion_times, default=0)
 
-        # Schedule on assigned core k
         core_index = task.assignment
-        # Initialize execution timing array
-        # Index 0-2: Local cores
-        # Index 3: Cloud
         task.execution_unit_task_start_times = [-1] * 4
 
-        # Calculate actual start time considering:
-        # 1. Task ready time RTi^l
-        # 2. Core availability (RT_ls[k])
-        task.execution_unit_task_start_times[core_index] = max(
-            self.RT_ls[core_index],  # Core availability
-            task.RT_l               # Task ready time
-        )
+        task.execution_unit_task_start_times[core_index] = max(self.RT_ls[core_index],task.RT_l)
 
-        # Calculate finish time FTi^l
-        # FTi^l = start_time + Ti,k^l 
-        # where Ti,k^l is execution time on core k
-        task.FT_l = (
-            task.execution_unit_task_start_times[core_index] + 
-            task.core_execution_times[core_index]
-        )
+        task.FT_l = (task.execution_unit_task_start_times[core_index] + task.core_execution_times[core_index])
 
-        # Update core k's next available time
         self.RT_ls[core_index] = task.FT_l
 
-        # Clear cloud execution timings
-        # FTi^ws = FTi^c = FTi^wr = 0 for local tasks
-        # As specified in Section II.C
         task.FT_ws = -1
         task.FT_c = -1
         task.FT_wr = -1
     
     def schedule_cloud_task(self, task):
-        # Calculate wireless sending ready time RTi^ws
-        # Implements equation (4): RTi^ws = max(vj∈pred(vi)) max(FTj^l, FTj^ws)
         if not task.pred_tasks:
-            # Entry tasks can start sending immediately
             task.RT_ws = 0
         else:
-            # Find latest completion time among predecessors
-            # Consider both local execution (FTj^l) and cloud sending (FTj^ws)
             pred_task_completion_times = (
                 max(pred_task.FT_l, pred_task.FT_ws) 
                 for pred_task in task.pred_tasks
             )
             task.RT_ws = max(pred_task_completion_times)
 
-        # Initialize timing array for execution units
         task.execution_unit_task_start_times = [-1] * 4
-        # Set cloud start time considering:
-        # 1. Wireless channel availability
-        # 2. Task ready time RTi^ws
         task.execution_unit_task_start_times[3] = max(
             self.cloud_phases_ready_times[0],  # Channel availability
             task.RT_ws                         # Task ready time
         )
 
-        # Phase 1: RF Sending Phase
-        # Implement equation (1): Ti^s = datai/R^s
-        # Calculate finish time FTi^ws
         task.FT_ws = (
             task.execution_unit_task_start_times[3] + 
             task.cloud_execution_times[0]  # Ti^s
@@ -694,137 +508,83 @@ class KernelScheduler:
 
 
 def kernel_algorithm(tasks, sequences):
-   # Initialize kernel scheduler with tasks and sequences
-   # Handles timing calculations and readiness tracking
    scheduler = KernelScheduler(tasks, sequences)
-   
-   # Initialize LIFO stack with ready tasks
-   # "initialized by pushing the task vi's with both
-   # ready1[i] = 0 and ready2[i] = 0 into the empty stack"
    queue = scheduler.initialize_queue()
    
-   # Main scheduling loop
-   # "repeat the following steps until the stack becomes empty"
    while queue:
-       # Pop next ready task from stack
        current_task = queue.popleft()
-       # Mark as scheduled in kernel phase
        current_task.is_scheduled = SchedulingState.KERNEL_SCHEDULED
-       
-       # Schedule based on execution type
+
        if current_task.is_core_task:
-           # Schedule on assigned local core k
-           # Updates RTi^l and FTi^l
            scheduler.schedule_local_task(current_task)
        else:
-           # Schedule three-phase cloud execution
-           # Updates RTi^ws, FTi^ws, RTi^c, FTi^c, RTi^wr, FTi^wr
            scheduler.schedule_cloud_task(current_task)
        
-       # Update ready1 and ready2 vectors
-       # "Update vectors ready1 (reducing ready1[j] by one for all
-       # vj ∈ succ(vi)) and ready2, and push all the new tasks vj
-       # with both ready1[j] = 0 and ready2[j] = 0 into the stack"
        for task in tasks:
            scheduler.update_task_state(task)
            
-           # Add newly ready tasks to stack
-           if (scheduler.dependency_ready[task.id - 1] == 0 and  # ready1[j] = 0
-               scheduler.sequence_ready[task.id - 1] == 0 and    # ready2[j] = 0
+           if (scheduler.dependency_ready[task.id - 1] == 0 and
+               scheduler.sequence_ready[task.id - 1] == 0 and
                task.is_scheduled != SchedulingState.KERNEL_SCHEDULED and
                task not in queue):
                queue.append(task)
    
-   # Reset scheduling state for next iteration
-   # Allows multiple runs of kernel algorithm during task migration
    for task in tasks:
        task.is_scheduled = SchedulingState.UNSCHEDULED
    
    return tasks
     
 def generate_cache_key(tasks, idx, target_execution_unit):
-        # Create cache key from:
-        # 1. Task being migrated (v_tar)
-        # 2. Target execution unit (k_tar)
-        # 3. Current task assignments (ki for all tasks)
         return (idx, target_execution_unit, 
                 tuple(task.assignment for task in tasks))
 
 def evaluate_migration(tasks, seqs, idx, target_execution_unit, migration_cache, core_powers=[1, 2, 4], cloud_sending_power=0.5):
-        # Generate cache key for this migration scenario
         cache_key = generate_cache_key(tasks, idx, target_execution_unit)
                     
-        # Check cache for previously evaluated scenario
         if cache_key in migration_cache:
             return migration_cache[cache_key]
 
-        # Create copies to avoid modifying original state
         sequence_copy = [seq.copy() for seq in seqs]
         tasks_copy = deepcopy(tasks)
 
-        # Apply migration and recalculate schedule
         sequence_copy = construct_sequence(
             tasks_copy, 
-            idx + 1,  # Convert to 1-based task ID
+            idx + 1,
             target_execution_unit, 
             sequence_copy
         )
-        kernel_algorithm(tasks_copy, sequence_copy)
 
-        # Calculate new metrics
+        kernel_algorithm(tasks_copy, sequence_copy)
         migration_T = total_time(tasks_copy)
         migration_E = total_energy(tasks_copy, core_powers, cloud_sending_power)
-
-        # Cache results
         migration_cache[cache_key] = (migration_T, migration_E)
         return migration_T, migration_E
 
 def initialize_migration_choices(tasks):
-        # Create matrix of migration possibilities:
-        # N rows (tasks) x 4 columns (3 cores + cloud)
-        # Implements "total of N × K migration choices"
-        # from Section III.B outer loop
         migration_choices = np.zeros((len(tasks), 4), dtype=bool)
-        
-        # Set valid migration targets for each task
         for i, task in enumerate(tasks):
             if task.assignment == 3:  
-                # Cloud-assigned tasks (ki = 0)
-                # Can potentially migrate to any local core
                 migration_choices[i, :] = True
             else:
-                # Locally-assigned tasks (ki > 0)
-                # Can only migrate to current core or cloud
-                # Maintains task's current valid execution options
                 migration_choices[i, task.assignment] = True
                     
         return migration_choices
 
 def identify_optimal_migration(migration_trials_results, T_final, E_total, T_max):
-        # Step 1: Find migrations that reduce energy without increasing time
-        # "select the choice that results in the largest energy reduction 
-        # compared with the current schedule and no increase in T_total"
         best_energy_reduction = 0
         best_migration = None
 
         for idx, resource_idx, time, energy in migration_trials_results:
-            # Skip migrations violating T_max constraint
             if time > T_max:
                 continue
-            
-            # Calculate potential energy reduction
-            # ΔE = E_total_current - E_total_after
+
             energy_reduction = E_total - energy
-        
-            # Check if migration:
-            # 1. Doesn't increase completion time (T_total)
-            # 2. Reduces energy consumption (E_total)
+
             if time <= T_final and energy_reduction > 0:
                 if energy_reduction > best_energy_reduction:
                     best_energy_reduction = energy_reduction
                     best_migration = (idx, resource_idx, time, energy)
 
-        # Return best energy-reducing migration if found
         if best_migration:
             idx, resource_idx, time, energy = best_migration
             return TaskMigrationState(
@@ -835,23 +595,16 @@ def identify_optimal_migration(migration_trials_results, T_final, E_total, T_max
                 target_execution_unit=resource_idx + 1
             )
 
-        # Step 2: If no direct energy reduction found
-        # "select the one that results in the largest ratio of
-        # energy reduction to the increase of T_total"
         migration_candidates = []
         for idx, resource_idx, time, energy in migration_trials_results:
-            # Maintain T_max constraint
             if time > T_max:
                 continue
             
-            # Calculate energy reduction
             energy_reduction = E_total - energy
             if energy_reduction > 0:
-                # Calculate efficiency ratio
-                # ΔE / ΔT where ΔT is increase in completion time
                 time_increase = max(0, time - T_final)
                 if time_increase == 0:
-                    efficiency = float('inf')  # Prioritize no time increase
+                    efficiency = float('inf')
                 else:
                     efficiency = energy_reduction / time_increase
             
@@ -861,7 +614,6 @@ def identify_optimal_migration(migration_trials_results, T_final, E_total, T_max
         if not migration_candidates:
             return None
         
-        # Return migration with best efficiency ratio
         neg_ratio, n_best, k_best, T_best, E_best = heappop(migration_candidates)
         return TaskMigrationState(
             time=T_best, 
@@ -872,39 +624,23 @@ def identify_optimal_migration(migration_trials_results, T_final, E_total, T_max
         )
 
 def optimize_task_scheduling(tasks, sequence, T_final, core_powers=[1, 2, 4], cloud_sending_power=0.5):
-   # Convert core powers to numpy array for efficient operations 
    core_powers = np.array(core_powers)
-   
-   # Cache for memoizing migration evaluations
    migration_cache = {}
-   
-   # Calculate initial energy consumption E_total (equation 9)
    current_iteration_energy = total_energy(tasks, core_powers, cloud_sending_power)
-   
-   # Iterative improvement loop
-   # "repeat the previous steps until the energy consumption
-   # cannot be further minimized"
+
    energy_improved = True
    while energy_improved:
-       # Store current energy for comparison
        previous_iteration_energy = current_iteration_energy
-       
-       # Get current schedule metrics
-       current_time = total_time(tasks)  # T_total (equation 10)
-       T_max = T_final * 1.5  # Allow some scheduling flexibility
-       
-       # Initialize migration possibilities matrix
-       # N×K possible migrations as described in Section III.B
+       current_time = total_time(tasks)
+       T_max = T_final * 1.5
        migration_choices = initialize_migration_choices(tasks)
-       
-       # Evaluate all valid migration options
+
        migration_trials_results = []
        for idx in range(len(tasks)):
            for possible_execution_unit in range(4):
                if migration_choices[idx, possible_execution_unit]:
                    continue
                    
-               # Calculate T_total and E_total after migration
                migration_trial_time, migration_trial_energy = evaluate_migration(
                    tasks, sequence, idx, possible_execution_unit, migration_cache
                )
@@ -913,9 +649,6 @@ def optimize_task_scheduling(tasks, sequence, T_final, core_powers=[1, 2, 4], cl
                     migration_trial_time, migration_trial_energy)
                )
        
-       # Select best migration using two-step criteria
-       # 1. Reduce energy without increasing time
-       # 2. Best energy/time tradeoff ratio
        best_migration = identify_optimal_migration(
            migration_trials_results=migration_trials_results,
            T_final=current_time,
@@ -923,13 +656,10 @@ def optimize_task_scheduling(tasks, sequence, T_final, core_powers=[1, 2, 4], cl
            T_max=T_max
        )
        
-       # Exit if no valid migrations remain
        if best_migration is None:
            energy_improved = False
            break
-       
-       # Apply selected migration:
-       # 1. Construct new sequences (Section III.B.2)
+
        sequence = construct_sequence(
            tasks,
            best_migration.task_index,
@@ -937,14 +667,10 @@ def optimize_task_scheduling(tasks, sequence, T_final, core_powers=[1, 2, 4], cl
            sequence
        )
        
-       # 2. Apply kernel algorithm for O(N) rescheduling
        kernel_algorithm(tasks, sequence)
-       
-       # Calculate new energy consumption
        current_iteration_energy = total_energy(tasks, core_powers, cloud_sending_power)
        energy_improved = current_iteration_energy < previous_iteration_energy
        
-       # Manage cache size for memory efficiency
        if len(migration_cache) > 1000:
            migration_cache.clear()
 
