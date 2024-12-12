@@ -6,7 +6,6 @@ import heapq
 INF = float('inf')
 
 def visualize_full_process(original_graph, reweighted_graph, potentials, V):
-    """Visualizes the full process: Original Graph, Bellman-Ford Potentials, and Reweighted Graph."""
     fig, axes = plt.subplots(1, 2, figsize=(18, 6))
 
     G1 = nx.DiGraph()
