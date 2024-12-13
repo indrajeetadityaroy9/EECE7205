@@ -13,6 +13,7 @@
 #include <tuple>
 #include <utility>
 #include <vector>
+using namespace std;
 
 // SchedulingState tracks the scheduling progress of each task
 enum class SchedulingState {
@@ -28,17 +29,17 @@ public:
     // pred_tasks and succ_tasks implement the precedence constraints
     // described where each edge (vi,vj) represents that
     // task vi must complete before task vj starts
-    std::vector<int> pred_tasks;  // Immediate predecessors in the task graph
-    std::vector<int> succ_tasks;  // Immediate successors in the task graph
+    vector<int> pred_tasks;  // Immediate predecessors in the task graph
+    vector<int> succ_tasks;  // Immediate successors in the task graph
 
     // Execution times for different processing units
     // where execution time T_i^l is inversely proportional to core frequency f_k
-    std::array<int,3> core_execution_times;  // T_i^l for each local core k
+    array<int,3> core_execution_times;  // T_i^l for each local core k
     // Cloud execution phases:
     // [0] = sending time (T_i^s)
     // [1] = cloud computation time (T_i^c)
     // [2] = receiving time (T_i^r)
-    std::array<int,3> cloud_execution_times;
+    array<int,3> cloud_execution_times;
 
     // Finish times for different execution phases
     // These track when each phase of task execution completes
@@ -68,7 +69,7 @@ public:
 
     // Tracks start times for task on different execution units
     // Used for scheduling and migration decisions
-    std::vector<int> execution_unit_task_start_times;
+    vector<int> execution_unit_task_start_times;
     int execution_finish_time;
 
     // Current state in the scheduling process
@@ -76,8 +77,8 @@ public:
 
     // Constructor initializes a task with its execution time requirements
     Task(int task_id,
-         const std::map<int, std::array<int,3>>& core_exec_times_map,
-         const std::array<int,3>& cloud_exec_times_input)
+         const map<int, array<int,3>>& core_exec_times_map,
+         const array<int,3>& cloud_exec_times_input)
         : id(task_id),
           FT_l(0),
           FT_ws(0),
@@ -108,7 +109,7 @@ public:
 
 // Calculates the total application completion time
 // T^total = max(max(FT_i^l, FT_i^wr)) for all exit tasks
-int total_time(const std::vector<Task>& tasks) {
+int total_time(const vector<Task>& tasks) {
     // Track the maximum completion time across all exit tasks
     int max_completion_time = 0;
     // Iterate through all tasks to find exit tasks (tasks with no successors)
@@ -121,7 +122,7 @@ int total_time(const std::vector<Task>& tasks) {
             // - FT_l: finish time if executed locally on a core
             // - FT_wr: finish time if offloaded to cloud (when results are received)
             // This implements the inner max() in Equation 10
-            int completion = std::max(task.FT_l, task.FT_wr);
+            int completion = max(task.FT_l, task.FT_wr);
             // Keep track of the maximum completion time across all exit tasks
             // This implements the outer max() in Equation 10
             if (completion > max_completion_time) {
@@ -137,7 +138,7 @@ int total_time(const std::vector<Task>& tasks) {
 // Uses either Equation 7 (for local execution) or Equation 8 (for cloud execution)
 double calculate_energy_consumption(
     const Task& task,                          // Task being evaluated
-    const std::vector<int>& core_powers,       // P_k values for each core
+    const vector<int>& core_powers,       // P_k values for each core
     double cloud_sending_power                 // P^s value for RF sending power
 ) {
     // Check if task is assigned to a local core
@@ -161,8 +162,8 @@ double calculate_energy_consumption(
 
 // Calculates the total energy consumption E^total for the entire application as defined in Equation 9
 double total_energy(
-    const std::vector<Task>& tasks,            // All tasks in the application
-    const std::vector<int>& core_powers,       // Power consumption values for each core
+    const vector<Task>& tasks,            // All tasks in the application
+    const vector<int>& core_powers,       // Power consumption values for each core
     double cloud_sending_power                 // Power consumption for RF transmission
 ) {
     // Initialize the total energy consumption
@@ -182,7 +183,7 @@ double total_energy(
 // Implements the primary assignment phase
 // This phase makes initial decisions about which tasks should be considered for cloud execution
 void primary_assignment(
-    std::vector<Task>& tasks,  // All tasks in the application graph
+    vector<Task>& tasks,  // All tasks in the application graph
     int k                      // Number of cores available (K)
 ) {
     // Examine each task to determine if it's better suited for cloud execution
@@ -190,7 +191,7 @@ void primary_assignment(
         // Calculate T_i^l_min (Equation 11) - the minimum local execution time
         // This represents the best-case scenario for local execution
         // by finding the fastest available core for this task
-        int t_l_min = *std::min_element(task.core_execution_times.begin(), task.core_execution_times.end());
+        int t_l_min = *min_element(task.core_execution_times.begin(), task.core_execution_times.end());
 
         // Calculate T_i^re (Equation 12) - the remote execution time
         // This is the sum of:
@@ -210,13 +211,13 @@ void primary_assignment(
     }
 }
 
-double calculate_priority(const Task& task, const std::vector<Task>& tasks, const std::vector<double>& w, std::map<int,double>& computed_priority_scores);
+double calculate_priority(const Task& task, const vector<Task>& tasks, const vector<double>& w, map<int,double>& computed_priority_scores);
 
 // Implements the task prioritizing phase
 // This phase calculates priority levels for all tasks to determine scheduling order
-void task_prioritizing(std::vector<Task>& tasks) {
+void task_prioritizing(vector<Task>& tasks) {
     //Calculate the computation cost (w_i) for each task as described in Equations 13 and 14
-    std::vector<double> w(tasks.size(), 0.0);
+    vector<double> w(tasks.size(), 0.0);
 
     for (size_t i = 0; i < tasks.size(); i++) {
         const Task& task = tasks[i];
@@ -231,13 +232,13 @@ void task_prioritizing(std::vector<Task>& tasks) {
         } else {
             // For local tasks, use Equation 14:
             // w_i = average computation time across all cores
-            double sum_local = static_cast<double>(std::accumulate(task.core_execution_times.begin(), task.core_execution_times.end(), 0));
+            double sum_local = static_cast<double>(accumulate(task.core_execution_times.begin(), task.core_execution_times.end(), 0));
             w[i] = sum_local / static_cast<double>(task.core_execution_times.size());
         }
     }
 
     // Use memoization to avoid recalculating priorities for the same tasks
-    std::map<int,double> computed_priority_scores;
+    map<int,double> computed_priority_scores;
 
     // Calculate priorities for all tasks recursively
     for (auto& task : tasks) {
@@ -254,9 +255,9 @@ void task_prioritizing(std::vector<Task>& tasks) {
 // Recursively calculates task priorities according to Equations 15 and 16
 double calculate_priority(
     const Task& task,                          // Current task
-    const std::vector<Task>& tasks,            // All tasks
-    const std::vector<double>& w,              // Computation costs
-    std::map<int,double>& computed_priority_scores  // Memoization cache
+    const vector<Task>& tasks,            // All tasks
+    const vector<double>& w,              // Computation costs
+    map<int,double>& computed_priority_scores  // Memoization cache
 ) {
     // Check if priority was already computed
     auto it = computed_priority_scores.find(task.id);
@@ -274,7 +275,7 @@ double calculate_priority(
 
     // Recursive case: Non-exit tasks (Equation 15)
     // priority(v_i) = w_i + max(priority(v_j)) for all successors v_j
-    double max_successor_priority = -std::numeric_limits<double>::infinity();
+    double max_successor_priority = -numeric_limits<double>::infinity();
     for (int succ_id : task.succ_tasks) {
         const Task& succ_tasks = tasks[succ_id - 1];
         double succ_priority = calculate_priority(succ_tasks, tasks, w, computed_priority_scores);
@@ -294,7 +295,7 @@ double calculate_priority(
 class InitialTaskScheduler {
 public:
     // Constructor initializes the scheduler with tasks and available resources
-    InitialTaskScheduler(std::vector<Task>& tasks, int num_cores=3)
+    InitialTaskScheduler(vector<Task>& tasks, int num_cores=3)
         : tasks(tasks),           // Tasks to be scheduled
           k(num_cores),           // Number of local cores available
           ws_ready(0),            // Tracks when wireless sending channel is available
@@ -312,22 +313,22 @@ public:
 
     // Implements task ordering based on priorities calculated
     // Returns tasks sorted by descending priority to determine scheduling order
-    std::vector<int> get_priority_ordered_tasks() {
+    vector<int> get_priority_ordered_tasks() {
         // Create pairs of (priority_score, task_id) for sorting
-        std::vector<std::pair<double,int>> task_priority_list;
+        vector<pair<double,int>> task_priority_list;
         for (auto &t : tasks) {
             task_priority_list.emplace_back(t.priority_score, t.id);
         }
 
         // Sort tasks by priority (higher priority first)
-        std::sort(task_priority_list.begin(), 
+        sort(task_priority_list.begin(), 
                  task_priority_list.end(), 
                  [](const auto &a, const auto &b){
                      return a.first > b.first;
                  });
 
         // Extract just the task IDs in priority order
-        std::vector<int> result;
+        vector<int> result;
         for (auto &item : task_priority_list) {
             result.push_back(item.second);
         }
@@ -335,11 +336,11 @@ public:
     }
 
     // Separates tasks into entry tasks and non-entry tasks while preserving priority order
-    std::pair<std::vector<Task*>, std::vector<Task*>> classify_entry_tasks(
-    const std::vector<int>& priority_order
+    pair<vector<Task*>, vector<Task*>> classify_entry_tasks(
+    const vector<int>& priority_order
     ) {
-    std::vector<Task*> entry_tasks;     // Tasks with no predecessors
-    std::vector<Task*> non_entry_tasks; // Tasks with predecessors
+    vector<Task*> entry_tasks;     // Tasks with no predecessors
+    vector<Task*> non_entry_tasks; // Tasks with predecessors
 
     // Process tasks in priority order, maintaining the scheduling sequence
     for (int task_id : priority_order) {
@@ -369,9 +370,9 @@ public:
     int ready_time=0  // Earliest time task can start due to dependencies
     ) {
     // Initialize with worst-case values to ensure any valid choice is better
-    int best_finish_time = std::numeric_limits<int>::max();
+    int best_finish_time = numeric_limits<int>::max();
     int best_core = -1;
-    int best_start_time = std::numeric_limits<int>::max();
+    int best_start_time = numeric_limits<int>::max();
 
     // Evaluate each potential core assignment
     for (int core = 0; core < k; core++) {
@@ -379,7 +380,7 @@ public:
         // Must consider both:
         // - ready_time: when task's dependencies are satisfied
         // - core_earliest_ready[core]: when the core becomes available
-        int start_time = std::max(ready_time, core_earliest_ready[core]);
+        int start_time = max(ready_time, core_earliest_ready[core]);
         
         // Calculate when task would finish on this core
         int finish_time = start_time + task.core_execution_times[core];
@@ -468,7 +469,7 @@ public:
         // - When receiving channel (wr_ready) becomes available
         // - When results are ready from cloud (receive_ready)
         // T_i^r from Equation 2: time to receive results = data'_i/R^r
-        int receive_finish = std::max(wr_ready, receive_ready) + task.cloud_execution_times[2];
+        int receive_finish = max(wr_ready, receive_ready) + task.cloud_execution_times[2];
 
         // Return complete timeline of all cloud execution phases
         return {send_ready, send_finish, cloud_ready, cloud_finish, receive_ready, receive_finish};
@@ -533,11 +534,11 @@ public:
 
     // Schedules all entry tasks (tasks with no predecessors)
     // Handles both local and cloud execution while respecting resource constraints
-    void schedule_entry_tasks(std::vector<Task*> &entry_tasks) {
+    void schedule_entry_tasks(vector<Task*> &entry_tasks) {
         // Keep track of tasks that need cloud execution
         // We handle these separately because cloud scheduling needs
         // to account for wireless channel availability
-        std::vector<Task*> cloud_entry_tasks;
+        vector<Task*> cloud_entry_tasks;
 
         // First Pass: Handle Local Core Tasks
         // Process tasks that will run on local cores first
@@ -586,13 +587,13 @@ public:
             // For each predecessor, consider both scenarios:
             // - FT_l: when it finishes if executed locally
             // - FT_wr: when its results arrive if executed in cloud
-            int val = std::max(pred.FT_l, pred.FT_wr);
+            int val = max(pred.FT_l, pred.FT_wr);
             if (val > max_pred_finish_l_wr) {
                 max_pred_finish_l_wr = val;
             }
         }
         // Task can't start locally until all predecessors complete
-        task.RT_l = std::max(max_pred_finish_l_wr, 0);
+        task.RT_l = max(max_pred_finish_l_wr, 0);
 
         // Calculate RT_ws (ready time for cloud sending)
         // This implements Equation 4 from the paper
@@ -602,7 +603,7 @@ public:
             // For each predecessor, consider both scenarios:
             // - FT_l: when it finishes if executed locally
             // - FT_ws: when it finishes uploading if executed in cloud
-            int val = std::max(pred.FT_l, pred.FT_ws);
+            int val = max(pred.FT_l, pred.FT_ws);
             if (val > max_pred_finish_l_ws) {
                 max_pred_finish_l_ws = val;
             }
@@ -610,11 +611,11 @@ public:
         // Task can't start uploading until:
         // - All predecessors complete
         // - Wireless sending channel becomes available
-        task.RT_ws = std::max(max_pred_finish_l_ws, ws_ready);
+        task.RT_ws = max(max_pred_finish_l_ws, ws_ready);
     }
 
     // Schedules non-entry tasks with dependency and resource constraints
-    void schedule_non_entry_tasks(std::vector<Task*> &non_entry_tasks) {
+    void schedule_non_entry_tasks(vector<Task*> &non_entry_tasks) {
         // Process tasks in priority order
         for (auto* task : non_entry_tasks) {
             // First, calculate when this task could potentially start
@@ -656,16 +657,16 @@ public:
 
     // Returns the final scheduling sequences for all execution units
     // Each sequence represents the order of tasks assigned to that resource
-    std::vector<std::vector<int>> get_sequences() const {
+    vector<vector<int>> get_sequences() const {
         return sequences;
     }
     // All tasks in the task graph
-    std::vector<Task> &tasks;
+    vector<Task> &tasks;
     // Number of available local cores (K)
     // Represents the cores in the mobile device
     int k;
     // Tracks when each core will next be available
-    std::vector<int> core_earliest_ready;
+    vector<int> core_earliest_ready;
     // Tracks when wireless sending channel will be free
     int ws_ready;
     // Tracks when wireless receiving channel will be free
@@ -673,17 +674,17 @@ public:
     // Stores the execution sequences for each resource
     // sequences[0] to sequences[k-1] are for local cores
     // sequences[k] is for cloud execution
-    std::vector<std::vector<int>> sequences;
+    vector<vector<int>> sequences;
 };
 
 // Implements the complete execution unit selection phase
-std::vector<std::vector<int>> execution_unit_selection(std::vector<Task>& tasks) {
+vector<vector<int>> execution_unit_selection(vector<Task>& tasks) {
     // Initialize scheduler with 3 cores
     InitialTaskScheduler scheduler(tasks, 3);
     // Step 1: Get tasks ordered by priority
     // Higher priority means the task is on a longer path to completion
     // This helps minimize overall completion time
-    std::vector<int> priority_orderered_tasks = scheduler.get_priority_ordered_tasks();
+    vector<int> priority_orderered_tasks = scheduler.get_priority_ordered_tasks();
     // Step 2: Separate tasks into entry tasks and non-entry tasks
     // Entry tasks can start immediately while non-entry tasks must wait
     // This separation helps handle dependencies correctly
@@ -699,11 +700,11 @@ std::vector<std::vector<int>> execution_unit_selection(std::vector<Task>& tasks)
 }
 
 // Constructs a new sequence when migrating a task to a different execution unit
-std::vector<std::vector<int>> construct_sequence(
-    std::vector<Task>& tasks,         // All tasks in the system
+vector<vector<int>> construct_sequence(
+    vector<Task>& tasks,         // All tasks in the system
     int task_id,                      // Task being migrated
     int execution_unit,               // New execution unit for the task
-    std::vector<std::vector<int>> original_sequence  // Current scheduling
+    vector<vector<int>> original_sequence  // Current scheduling
 ) {
     // Get reference to the task being migrated
     Task &target_task = tasks[task_id - 1];
@@ -716,20 +717,20 @@ std::vector<std::vector<int>> construct_sequence(
     // Remove the task from its current execution sequence
     int original_assignment = target_task.assignment;
     auto &old_seq = original_sequence[original_assignment];
-    old_seq.erase(std::remove(old_seq.begin(), old_seq.end(), target_task.id), old_seq.end());
+    old_seq.erase(remove(old_seq.begin(), old_seq.end(), target_task.id), old_seq.end());
     // Get reference to the sequence where the task will be inserted
     auto &new_seq = original_sequence[execution_unit];
     // Collect start times of tasks already in the target sequence
     // This helps find the right insertion point
-    std::vector<int> start_times;
+    vector<int> start_times;
     start_times.reserve(new_seq.size());
     for (int tid : new_seq) {
         Task &t = tasks[tid - 1];
         start_times.push_back(t.execution_unit_task_start_times[execution_unit]);
     }
     // Find where to insert the task based on its ready time
-    auto it = std::lower_bound(start_times.begin(), start_times.end(), target_task_rt);
-    int insertion_index = static_cast<int>(std::distance(start_times.begin(), it));
+    auto it = lower_bound(start_times.begin(), start_times.end(), target_task_rt);
+    int insertion_index = static_cast<int>(distance(start_times.begin(), it));
     // Insert the task at the appropriate position
     new_seq.insert(new_seq.begin() + insertion_index, target_task.id);
     // Update task's assignment information
@@ -742,7 +743,7 @@ std::vector<std::vector<int>> construct_sequence(
 class KernelScheduler {
 public:
     // Constructor initializes the scheduler with tasks and their current sequences
-    KernelScheduler(std::vector<Task>& tasks, std::vector<std::vector<int>>& sequences)
+    KernelScheduler(vector<Task>& tasks, vector<vector<int>>& sequences)
         : tasks(tasks), sequences(sequences)
     {
         // Initialize ready times for local cores (RT_l)
@@ -754,20 +755,20 @@ public:
         cloud_phases_ready_times = {0,0,0};
 
         // Initialize task state tracking vectors
-        std::tie(dependency_ready, sequence_ready) = initialize_task_state();
+        tie(dependency_ready, sequence_ready) = initialize_task_state();
     }
 
     // Sets up initial task state tracking for dependencies and sequences
-    std::pair<std::vector<int>, std::vector<int>> initialize_task_state() {
+    pair<vector<int>, vector<int>> initialize_task_state() {
         // Track how many predecessors each task is still waiting for
-        std::vector<int> dependency_ready(tasks.size(), 0);
+        vector<int> dependency_ready(tasks.size(), 0);
         for (size_t i = 0; i < tasks.size(); i++) {
             dependency_ready[i] = static_cast<int>(tasks[i].pred_tasks.size());
         }
 
         // Track which tasks are ready to execute in their sequences
         // -1 means not ready, 0 means ready to execute
-        std::vector<int> sequence_ready(tasks.size(), -1);
+        vector<int> sequence_ready(tasks.size(), -1);
         for (auto &seq : sequences) {
             if (!seq.empty()) {
                 // First task in each sequence is initially ready
@@ -796,10 +797,10 @@ public:
             // Handle sequence-based readiness
             // Find this task in its current execution sequence
             for (auto &seq : sequences) {
-                auto it = std::find(seq.begin(), seq.end(), task.id);
+                auto it = find(seq.begin(), seq.end(), task.id);
                 if (it != seq.end()) {
                     // Calculate task's position in the sequence
-                    int idx = static_cast<int>(std::distance(seq.begin(), it));
+                    int idx = static_cast<int>(distance(seq.begin(), it));
                     
                     if (idx > 0) {
                         // If task isn't first in sequence, check previous task
@@ -834,7 +835,7 @@ public:
                 // For each prerequisite, consider both possible execution paths:
                 // - FT_l: when it finishes if it ran locally
                 // - FT_wr: when its results arrive if it ran in the cloud
-                int val = std::max(pred.FT_l, pred.FT_wr);
+                int val = max(pred.FT_l, pred.FT_wr);
                 if (val > max_finish) {
                     max_finish = val;
                 }
@@ -849,7 +850,7 @@ public:
         // Calculate actual start time by considering both:
         // - When the task's prerequisites finish (RT_l)
         // - When the assigned core becomes available (RT_ls[core_index])
-        int start_time = std::max(RT_ls[core_index], task.RT_l);
+        int start_time = max(RT_ls[core_index], task.RT_l);
         // Record when this task will start on its assigned core
         task.execution_unit_task_start_times[core_index] = start_time;
         // Calculate when the task will finish
@@ -873,7 +874,7 @@ public:
             for (int pred_id : task.pred_tasks) {
                 Task &pred = tasks[pred_id - 1];
                 // Consider both local execution (FT_l) and cloud sending (FT_ws)
-                int val = std::max(pred.FT_l, pred.FT_ws);
+                int val = max(pred.FT_l, pred.FT_ws);
                 if (val > max_finish) {
                     max_finish = val;
                 }
@@ -883,7 +884,7 @@ public:
         // Clear previous timing information
         task.execution_unit_task_start_times.assign(4, -1);
         // Phase 1 (continued): Schedule the sending phase
-        int send_start = std::max(cloud_phases_ready_times[0], task.RT_ws);
+        int send_start = max(cloud_phases_ready_times[0], task.RT_ws);
         task.execution_unit_task_start_times[3] = send_start;
         task.FT_ws = send_start + task.cloud_execution_times[0];
         cloud_phases_ready_times[0] = task.FT_ws;
@@ -897,12 +898,12 @@ public:
             }
         }
         // Cloud can't start until data arrives and prerequisites finish
-        task.RT_c = std::max(task.FT_ws, max_pred_c);
-        task.FT_c = std::max(cloud_phases_ready_times[1], task.RT_c) + task.cloud_execution_times[1];
+        task.RT_c = max(task.FT_ws, max_pred_c);
+        task.FT_c = max(cloud_phases_ready_times[1], task.RT_c) + task.cloud_execution_times[1];
         cloud_phases_ready_times[1] = task.FT_c;
         // Phase 3: Schedule result receiving
         task.RT_wr = task.FT_c;  // Can't receive until computation is done
-        task.FT_wr = std::max(cloud_phases_ready_times[2], task.RT_wr) + 
+        task.FT_wr = max(cloud_phases_ready_times[2], task.RT_wr) + 
                     task.cloud_execution_times[2];
         cloud_phases_ready_times[2] = task.FT_wr;
         // Clear local execution time since this task runs in the cloud
@@ -910,8 +911,8 @@ public:
     }
 
     // Initializes the scheduling queue by identifying tasks that are ready to execute
-    std::deque<Task*> initialize_queue() {
-        std::deque<Task*> dq;  // Will hold tasks ready for scheduling
+    deque<Task*> initialize_queue() {
+        deque<Task*> dq;  // Will hold tasks ready for scheduling
 
         // Examine each task in the system
         for (auto &t : tasks) {
@@ -938,34 +939,34 @@ public:
     }
 
     // Task graph tasks and current execution sequences
-    std::vector<Task> &tasks;
-    std::vector<std::vector<int>> &sequences;
+    vector<Task> &tasks;
+    vector<vector<int>> &sequences;
     // Tracks when each local core will next be available
     // RT_ls[i] represents the ready time for core i
-    std::array<int,3> RT_ls;
+    array<int,3> RT_ls;
     // Tracks ready times for each cloud execution phase:
     // [0] = sending channel
     // [1] = cloud computation
     // [2] = receiving channel
-    std::array<int,3> cloud_phases_ready_times;
+    array<int,3> cloud_phases_ready_times;
     // Tracks how many dependencies each task is still waiting for
-    std::vector<int> dependency_ready;
+    vector<int> dependency_ready;
     // Tracks whether each task is ready in its execution sequence
     // -1 = not ready, 0 = ready to execute, 1 = waiting for previous task
-    std::vector<int> sequence_ready;
+    vector<int> sequence_ready;
 };
 
 // Implements the linear-time kernel algorithm
 // This function reschedules tasks after migrations while maintaining dependencies
-std::vector<Task>& kernel_algorithm(
-    std::vector<Task>& tasks,
-    std::vector<std::vector<int>>& sequences
+vector<Task>& kernel_algorithm(
+    vector<Task>& tasks,
+    vector<vector<int>>& sequences
 ) {
     // Initialize the scheduler with current tasks and sequences
     KernelScheduler scheduler(tasks, sequences);
     // Create initial queue of ready tasks
     // A task is ready when it's first in its sequence and prerequisites are done
-    std::deque<Task*> queue = scheduler.initialize_queue();
+    deque<Task*> queue = scheduler.initialize_queue();
 
     // Process tasks until queue is empty
     while (!queue.empty()) {
@@ -1021,7 +1022,7 @@ std::vector<Task>& kernel_algorithm(
 struct MigrationKey {
     int task_idx;                  // Which task considering moving
     int target_execution_unit;     // Target location
-    std::vector<int> assignments;  // Current assignments of all tasks
+    vector<int> assignments;  // Current assignments of all tasks
 
     // Defines how to compare two migration scenarios
     bool operator<(const MigrationKey& other) const {
@@ -1039,7 +1040,7 @@ struct MigrationKey {
 // Creates a cache key for a specific migration scenario
 // This captures the complete state needed to identify unique migrations
 MigrationKey generate_cache_key(
-    const std::vector<Task>& tasks,     // All tasks in the system
+    const vector<Task>& tasks,     // All tasks in the system
     int task_idx,                       // Task being migrated
     int target_execution_unit           // Destination for the task
 ) {
@@ -1056,13 +1057,13 @@ MigrationKey generate_cache_key(
 
 // Evaluates the impact of moving a task to a new execution unit
 // Returns both completion time and energy consumption for the migration
-std::pair<int,double> evaluate_migration(
-    std::vector<Task>& tasks,                   // All tasks in system
-    const std::vector<std::vector<int>>& seqs,  // Current execution sequences
+pair<int,double> evaluate_migration(
+    vector<Task>& tasks,                   // All tasks in system
+    const vector<vector<int>>& seqs,  // Current execution sequences
     int task_idx,                               // Task considering moving
     int target_execution_unit,                  // Target Location
-    std::map<MigrationKey, std::pair<int,double>>& migration_cache,  // Cache of previous evaluations
-    const std::vector<int>& core_powers = {1,2,4},      // Power consumption of cores
+    map<MigrationKey, pair<int,double>>& migration_cache,  // Cache of previous evaluations
+    const vector<int>& core_powers = {1,2,4},      // Power consumption of cores
     double cloud_sending_power = 0.5                    // Power for cloud communication
 ) {
     //Check if already evaluated this exact migration scenario
@@ -1074,8 +1075,8 @@ std::pair<int,double> evaluate_migration(
     }
 
     // Create copies of the current state to simulate the migration
-    std::vector<std::vector<int>> sequence_copy = seqs;
-    std::vector<Task> tasks_copy = tasks;
+    vector<vector<int>> sequence_copy = seqs;
+    vector<Task> tasks_copy = tasks;
 
     // Simulate the task migration using the linear-time rescheduling algorithm
     sequence_copy = construct_sequence(tasks_copy, task_idx + 1, target_execution_unit, sequence_copy);
@@ -1086,19 +1087,19 @@ std::pair<int,double> evaluate_migration(
     double migration_E = total_energy(tasks_copy, core_powers, cloud_sending_power);
 
     // Cache the results for future reference
-    migration_cache[cache_key] = std::make_pair(migration_T, migration_E);
+    migration_cache[cache_key] = make_pair(migration_T, migration_E);
     return {migration_T, migration_E};
 }
 
 // Initializes a matrix of valid migration choices for each task
-std::vector<std::array<bool,4>> initialize_migration_choices(
-    const std::vector<Task>& tasks
+vector<array<bool,4>> initialize_migration_choices(
+    const vector<Task>& tasks
 ) {
     // Create a matrix where each task has 4 possible destinations
     // (3 cores + 1 cloud option), initialized to all false
-    std::vector<std::array<bool,4>> migration_choices(
+    vector<array<bool,4>> migration_choices(
         tasks.size(), 
-        std::array<bool,4>{false,false,false,false}
+        array<bool,4>{false,false,false,false}
     );
 
     // For each task
@@ -1143,7 +1144,7 @@ struct MigrationCandidate {
 };
 
 TaskMigrationState* identify_optimal_migration(
-    const std::vector<std::tuple<int,int,int,double>>& migration_trials_results,
+    const vector<tuple<int,int,int,double>>& migration_trials_results,
     int T_final,    // Current completion time
     double E_total, // Current energy consumption
     int T_max       // Maximum allowed completion time
@@ -1156,7 +1157,7 @@ TaskMigrationState* identify_optimal_migration(
     for (auto &res : migration_trials_results) {
         int task_idx, resource_idx, time_int;
         double energy;
-        std::tie(task_idx, resource_idx, time_int, energy) = res;
+        tie(task_idx, resource_idx, time_int, energy) = res;
         int time = time_int;
 
         // Skip migrations that violate maximum time constraint
@@ -1185,12 +1186,12 @@ TaskMigrationState* identify_optimal_migration(
         return best_migration_state;
     }
     // Phase 2: Consider migrations that trade time for energy savings
-    std::priority_queue<MigrationCandidate> migration_candidates;
+    priority_queue<MigrationCandidate> migration_candidates;
     // Evaluate all migrations again, this time considering time-energy trade-offs
     for (auto &res : migration_trials_results) {
         int task_idx, resource_idx, time_int;
         double energy;
-        std::tie(task_idx, resource_idx, time_int, energy) = res;
+        tie(task_idx, resource_idx, time_int, energy) = res;
         int time = time_int;
 
         if (time > T_max) {
@@ -1199,10 +1200,10 @@ TaskMigrationState* identify_optimal_migration(
         double energy_reduction = E_total - energy;
         if (energy_reduction > 0.0) {
             // Calculate efficiency as energy savings per unit time increase
-            int time_increase = std::max(0, time - T_final);
+            int time_increase = max(0, time - T_final);
             double efficiency;
             if (time_increase == 0) {
-                efficiency = std::numeric_limits<double>::infinity();
+                efficiency = numeric_limits<double>::infinity();
             } else {
                 efficiency = energy_reduction / static_cast<double>(time_increase);
             }
@@ -1225,16 +1226,16 @@ TaskMigrationState* identify_optimal_migration(
 
 // Implements the task scheduling optimization
 // Iteratively improves energy consumption through strategic task migrations
-std::pair<std::vector<Task>, std::vector<std::vector<int>>>
+pair<vector<Task>, vector<vector<int>>>
 optimize_task_scheduling(
-    std::vector<Task> tasks,              // Tasks to be scheduled
-    std::vector<std::vector<int>> sequence, // Initial task sequences
+    vector<Task> tasks,              // Tasks to be scheduled
+    vector<vector<int>> sequence, // Initial task sequences
     int T_final,                          // Target completion time
-    std::vector<int> core_powers = {1, 2, 4},  // Power consumption of cores
+    vector<int> core_powers = {1, 2, 4},  // Power consumption of cores
     double cloud_sending_power = 0.5           // Power for cloud communication
 ) {
     // Cache to avoid re-evaluating identical migration scenarios
-    std::map<MigrationKey, std::pair<int,double>> migration_cache;
+    map<MigrationKey, pair<int,double>> migration_cache;
     // Calculate initial energy consumption as baseline
     double current_iteration_energy = total_energy(tasks, core_powers, cloud_sending_power);
     // Continue optimizing as long as can find improvements
@@ -1243,11 +1244,11 @@ optimize_task_scheduling(
         double previous_iteration_energy = current_iteration_energy;
         int current_time = total_time(tasks);
         // Allow completion time to increase up to 50% above target
-        int T_max = static_cast<int>(std::floor(T_final * 1.5));
+        int T_max = static_cast<int>(floor(T_final * 1.5));
         // Initialize matrix of potential migrations to evaluate
         auto migration_choices = initialize_migration_choices(tasks);
         // Collect results from evaluating all possible migrations
-        std::vector<std::tuple<int,int,int,double>> migration_trials_results;
+        vector<tuple<int,int,int,double>> migration_trials_results;
         for (size_t task_idx = 0; task_idx < tasks.size(); task_idx++) {
             for (int possible_execution_unit = 0; possible_execution_unit < 4; 
                  possible_execution_unit++) {
@@ -1257,7 +1258,7 @@ optimize_task_scheduling(
                 }
                 // Evaluate impact of this potential migration
                 auto [migration_trial_time, migration_trial_energy] = evaluate_migration(tasks, sequence, static_cast<int>(task_idx),possible_execution_unit, migration_cache,core_powers, cloud_sending_power);
-                migration_trials_results.push_back(std::make_tuple(
+                migration_trials_results.push_back(make_tuple(
                     static_cast<int>(task_idx), possible_execution_unit,
                     migration_trial_time, migration_trial_energy));
             }
@@ -1303,7 +1304,7 @@ optimize_task_scheduling(
     return {tasks, sequence};
 }
 
-void print_schedule_tasks(const std::vector<Task>& tasks) {
+void print_schedule_tasks(const vector<Task>& tasks) {
     static const char* ASSIGNMENT_MAPPING[] = {
         "Core 1", "Core 2", "Core 3", "Cloud"
     };
@@ -1316,23 +1317,23 @@ void print_schedule_tasks(const std::vector<Task>& tasks) {
     const int width_cloud = 20;
     const int width_receive = 20;
 
-    std::cout << "\nTask Schedule:\n";
-    std::cout << std::string(130, '-') << "\n";
+    cout << "\nTask Schedule:\n";
+    cout << string(130, '-') << "\n";
 
-    std::cout << std::left
-              << std::setw(width_id) << "TaskID"
-              << std::setw(width_assignment) << "Assignment"
-              << std::setw(width_start) << "StartTime"
-              << std::setw(width_execwindow) << "ExecWindow(Core)"
-              << std::setw(width_send) << "SendPhase(Cloud)"
-              << std::setw(width_cloud) << "CloudPhase(Cloud)"
-              << std::setw(width_receive) << "ReceivePhase(Cloud)"
+    cout << left
+              << setw(width_id) << "TaskID"
+              << setw(width_assignment) << "Assignment"
+              << setw(width_start) << "StartTime"
+              << setw(width_execwindow) << "ExecWindow(Core)"
+              << setw(width_send) << "SendPhase(Cloud)"
+              << setw(width_cloud) << "CloudPhase(Cloud)"
+              << setw(width_receive) << "ReceivePhase(Cloud)"
               << "\n";
 
-    std::cout << std::string(130, '-') << "\n";
+    cout << string(130, '-') << "\n";
 
     for (const auto& task : tasks) {
-        std::string assignment_str;
+        string assignment_str;
         if (task.assignment >= 0 && task.assignment <= 3) {
             assignment_str = ASSIGNMENT_MAPPING[task.assignment];
         } else if (task.assignment == -2) {
@@ -1341,10 +1342,10 @@ void print_schedule_tasks(const std::vector<Task>& tasks) {
             assignment_str = "Unknown";
         }
 
-        std::string execution_window = "-";
-        std::string send_phase = "-";
-        std::string cloud_phase = "-";
-        std::string receive_phase = "-";
+        string execution_window = "-";
+        string send_phase = "-";
+        string cloud_phase = "-";
+        string receive_phase = "-";
 
         int display_start_time = -1;
 
@@ -1352,46 +1353,46 @@ void print_schedule_tasks(const std::vector<Task>& tasks) {
             static_cast<size_t>(task.assignment) < task.execution_unit_task_start_times.size()) {
             int start_time = task.execution_unit_task_start_times[task.assignment];
             int end_time = start_time + task.core_execution_times[task.assignment];
-            execution_window = std::to_string(start_time) + "=>" + std::to_string(end_time);
+            execution_window = to_string(start_time) + "=>" + to_string(end_time);
             display_start_time = start_time;
         }
 
         if (!task.is_core_task && task.execution_unit_task_start_times.size() > 3) {
             int send_start = task.execution_unit_task_start_times[3];
             int send_end = send_start + task.cloud_execution_times[0];
-            send_phase = std::to_string(send_start) + "=>" + std::to_string(send_end);
+            send_phase = to_string(send_start) + "=>" + to_string(send_end);
 
             int RT_c_val = task.RT_c;
             int cloud_end = RT_c_val + task.cloud_execution_times[1];
-            cloud_phase = std::to_string(RT_c_val) + "=>" + std::to_string(cloud_end);
+            cloud_phase = to_string(RT_c_val) + "=>" + to_string(cloud_end);
 
             int RT_wr_val = task.RT_wr;
             int receive_end = RT_wr_val + task.cloud_execution_times[2];
-            receive_phase = std::to_string(RT_wr_val) + "=>" + std::to_string(receive_end);
+            receive_phase = to_string(RT_wr_val) + "=>" + to_string(receive_end);
 
             display_start_time = send_start;
         }
 
-        std::cout << std::left
-                  << std::setw(width_id) << task.id
-                  << std::setw(width_assignment) << assignment_str
-                  << std::setw(width_start) << ((display_start_time >= 0) ? std::to_string(display_start_time) : "-")
-                  << std::setw(width_execwindow) << execution_window
-                  << std::setw(width_send) << send_phase
-                  << std::setw(width_cloud) << cloud_phase
-                  << std::setw(width_receive) << receive_phase
+        cout << left
+                  << setw(width_id) << task.id
+                  << setw(width_assignment) << assignment_str
+                  << setw(width_start) << ((display_start_time >= 0) ? to_string(display_start_time) : "-")
+                  << setw(width_execwindow) << execution_window
+                  << setw(width_send) << send_phase
+                  << setw(width_cloud) << cloud_phase
+                  << setw(width_receive) << receive_phase
                   << "\n";
     }
 
-    std::cout << std::string(130, '-') << "\n";
+    cout << string(130, '-') << "\n";
 }
 
-std::tuple<bool, std::vector<std::string>> validate_schedule_constraints(
-    const std::vector<Task>& tasks
+tuple<bool, vector<string>> validate_schedule_constraints(
+    const vector<Task>& tasks
 ) {
     // Track any constraint violations found
-    std::vector<std::string> violations;
-    std::map<int, size_t> id_to_index;
+    vector<string> violations;
+    map<int, size_t> id_to_index;
     for (size_t i = 0; i < tasks.size(); ++i) {
         id_to_index[tasks[i].id] = i;
     }
@@ -1400,8 +1401,8 @@ std::tuple<bool, std::vector<std::string>> validate_schedule_constraints(
     };
 
     // Organize tasks by execution location for efficient validation
-    std::vector<const Task*> cloud_tasks;
-    std::vector<const Task*> core_tasks;
+    vector<const Task*> cloud_tasks;
+    vector<const Task*> core_tasks;
     for (auto &t : tasks) {
         if (t.is_core_task) {
             core_tasks.push_back(&t);
@@ -1414,7 +1415,7 @@ std::tuple<bool, std::vector<std::string>> validate_schedule_constraints(
     // Ensures no overlap in cloud data transmission
     {
         auto sorted = cloud_tasks;
-        std::sort(sorted.begin(), sorted.end(), 
+        sort(sorted.begin(), sorted.end(), 
                  [](const Task* a, const Task* b) {
             return a->execution_unit_task_start_times[3] < 
                    b->execution_unit_task_start_times[3];
@@ -1433,7 +1434,7 @@ std::tuple<bool, std::vector<std::string>> validate_schedule_constraints(
     // Verifies proper sequencing of cloud computations
     {
         auto sorted = cloud_tasks;
-        std::sort(sorted.begin(), sorted.end(), 
+        sort(sorted.begin(), sorted.end(), 
                  [](const Task* a, const Task* b) {
             return a->RT_c < b->RT_c;
         });
@@ -1451,7 +1452,7 @@ std::tuple<bool, std::vector<std::string>> validate_schedule_constraints(
     // Ensures no overlap in result reception
     {
         auto sorted = cloud_tasks;
-        std::sort(sorted.begin(), sorted.end(), 
+        sort(sorted.begin(), sorted.end(), 
                  [](const Task* a, const Task* b) {
             return a->RT_wr < b->RT_wr;
         });
@@ -1505,13 +1506,13 @@ std::tuple<bool, std::vector<std::string>> validate_schedule_constraints(
     // Checks for conflicts on each core
     {
         for (int core_id = 0; core_id < 3; ++core_id) {
-            std::vector<const Task*> core_specific;
+            vector<const Task*> core_specific;
             for (auto t : core_tasks) {
                 if (t->assignment == core_id) {
                     core_specific.push_back(t);
                 }
             }
-            std::sort(core_specific.begin(), core_specific.end(),
+            sort(core_specific.begin(), core_specific.end(),
                      [=](const Task* a, const Task* b) {
                 return a->execution_unit_task_start_times[core_id] < 
                        b->execution_unit_task_start_times[core_id];
@@ -1532,50 +1533,50 @@ std::tuple<bool, std::vector<std::string>> validate_schedule_constraints(
     return {is_valid, violations};
 }
 
-void print_schedule_validation_report(const std::vector<Task>& tasks) {
+void print_schedule_validation_report(const vector<Task>& tasks) {
     auto [is_valid, violations] = validate_schedule_constraints(tasks);
 
-    std::cout << "\nSchedule Validation Report\n";
-    std::cout << std::string(50, '=') << "\n";
+    cout << "\nSchedule Validation Report\n";
+    cout << string(50, '=') << "\n";
 
     if (is_valid) {
-        std::cout << "Schedule is valid with all constraints satisfied!\n";
+        cout << "Schedule is valid with all constraints satisfied!\n";
     } else {
-        std::cout << "Found constraint violations:\n";
+        cout << "Found constraint violations:\n";
         for (const auto& violation : violations) {
-            std::cout << violation << "\n";
+            cout << violation << "\n";
         }
     }
 }
 
 // Creates a readable display of how tasks are scheduled across execution units (local cores and cloud)
-void print_schedule_sequences(const std::vector<std::vector<int>>& sequences) {
-    std::cout << "\nExecution Sequences:\n";
-    std::cout << std::string(40, '-') << "\n";
+void print_schedule_sequences(const vector<vector<int>>& sequences) {
+    cout << "\nExecution Sequences:\n";
+    cout << string(40, '-') << "\n";
     // Iterate through each execution unit (3 cores + cloud)
-    for (std::size_t i = 0; i < sequences.size(); i++) {
+    for (size_t i = 0; i < sequences.size(); i++) {
         // Label each sequence appropriately - either core number or cloud
-        std::string label = (i < 3) ? "Core " + std::to_string(i + 1) : "Cloud";
-        std::cout << std::setw(12) << std::left << label << ": ";
+        string label = (i < 3) ? "Core " + to_string(i + 1) : "Cloud";
+        cout << setw(12) << left << label << ": ";
         // Print task sequence in array format
-        std::cout << "[";
-        for (std::size_t j = 0; j < sequences[i].size(); j++) {
-            if (j > 0) std::cout << ", ";
-            std::cout << sequences[i][j];
+        cout << "[";
+        for (size_t j = 0; j < sequences[i].size(); j++) {
+            if (j > 0) cout << ", ";
+            cout << sequences[i][j];
         }
-        std::cout << "]\n";
+        cout << "]\n";
     }
 }
 
 // Creates a complete task graph with execution times and dependencies
-std::vector<Task> create_task_graph(
-    const std::vector<int>& task_ids,                    // Unique IDs for each task
-    const std::map<int, std::array<int,3>>& core_exec_times,  // Execution times on local cores
-    const std::array<int,3>& cloud_exec_times,           // Cloud execution phase times
-    const std::vector<std::pair<int,int>>& edges         // Task dependencies
+vector<Task> create_task_graph(
+    const vector<int>& task_ids,                    // Unique IDs for each task
+    const map<int, array<int,3>>& core_exec_times,  // Execution times on local cores
+    const array<int,3>& cloud_exec_times,           // Cloud execution phase times
+    const vector<pair<int,int>>& edges         // Task dependencies
 ) {
     // Initialize all tasks with their execution time requirements
-    std::vector<Task> tasks;
+    vector<Task> tasks;
     tasks.reserve(task_ids.size());  // Optimize memory allocation
     
     // Create each task with its timing information
@@ -1584,7 +1585,7 @@ std::vector<Task> create_task_graph(
     }
     // Create a mapping from task IDs to their positions in the vector
     // This makes it efficient to establish task relationships
-    std::map<int,int> id_to_index;
+    map<int,int> id_to_index;
     for (size_t i = 0; i < tasks.size(); ++i) {
         id_to_index[tasks[i].id] = static_cast<int>(i);
     }
@@ -1602,7 +1603,7 @@ std::vector<Task> create_task_graph(
 }
 
 int main() {
-    static const std::map<int, std::array<int,3>> core_execution_times = {
+    static const map<int, array<int,3>> core_execution_times = {
         {1, {9, 7, 5}}, {2, {8, 6, 5}}, {3, {6, 5, 4}}, {4, {7, 5, 3}},
         {5, {5, 4, 2}}, {6, {7, 6, 4}}, {7, {8, 5, 3}}, {8, {6, 4, 2}},
         {9, {5, 3, 2}}, {10,{7,4,2}},  {11,{10,7,4}}, {12,{11,8,5}},
@@ -1610,14 +1611,14 @@ int main() {
         {17,{9,6,3}}, {18,{12,8,5}}, {19,{10,7,4}}, {20,{11,8,5}}
     };
 
-    static const std::array<int,3> cloud_execution_times = {3, 1, 1};
+    static const array<int,3> cloud_execution_times = {3, 1, 1};
 
-    std::vector<int> ten_task_graph_task_ids = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-    std::vector<int> twenty_task_graph_task_ids = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 
+    vector<int> ten_task_graph_task_ids = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+    vector<int> twenty_task_graph_task_ids = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 
                                                    11, 12, 13, 14, 15, 16, 17, 18, 19, 20};
 
     // Graph 1
-    std::vector<std::pair<int,int>> graph1_edges = {
+    vector<pair<int,int>> graph1_edges = {
         {1,2}, {1,3}, {1,4}, {1,5}, {1,6},
         {2,8}, {2,9},
         {3,7},
@@ -1630,7 +1631,7 @@ int main() {
     };
 
     //Graph 2
-    std::vector<std::pair<int,int>> graph2_edges = {
+    vector<pair<int,int>> graph2_edges = {
         {1,2}, {1,3},
         {2,4}, {2,5},
         {3,5}, {3,6},
@@ -1643,7 +1644,7 @@ int main() {
     };
 
     //Graph 3
-    std::vector<std::pair<int,int>> graph3_edges = {
+    vector<pair<int,int>> graph3_edges = {
         {1,2}, {1,3}, {1,4}, {1,5}, {1,6},
         {2,7}, {2,8},
         {3,7}, {3,8},
@@ -1666,7 +1667,7 @@ int main() {
     };
 
     //Graph 4
-    std::vector<std::pair<int,int>> graph4_edges = {
+    vector<pair<int,int>> graph4_edges = {
         {1,7},
         {2,7},
         {3,7}, {3,8},
@@ -1689,7 +1690,7 @@ int main() {
     };
 
     //Graph 5
-    std::vector<std::pair<int,int>> graph5_edges = {
+    vector<pair<int,int>> graph5_edges = {
         {1,4}, {1,5}, {1,6},
         {2,7}, {2,8},
         {3,7}, {3,8},
@@ -1709,7 +1710,7 @@ int main() {
         {18,20},
     };
 
-    std::vector<std::vector<Task>> all_graphs;
+    vector<vector<Task>> all_graphs;
     all_graphs.push_back(create_task_graph(ten_task_graph_task_ids, core_execution_times, cloud_execution_times, graph1_edges));
     all_graphs.push_back(create_task_graph(ten_task_graph_task_ids, core_execution_times, cloud_execution_times, graph2_edges));
     all_graphs.push_back(create_task_graph(twenty_task_graph_task_ids, core_execution_times, cloud_execution_times, graph3_edges));
@@ -1718,7 +1719,7 @@ int main() {
 
     // Process each graph
     for (size_t i = 0; i < all_graphs.size(); ++i) {
-        std::cout << "\nProcessing Graph " << (i+1) << ":\n";
+        cout << "\nProcessing Graph " << (i+1) << ":\n";
         auto &tasks = all_graphs[i];
 
         // Step 1: Initial Scheduling Phase
@@ -1729,16 +1730,16 @@ int main() {
         // Step 2: Evaluate Initial Scheduling Results
         int T_final = total_time(tasks);
         double E_total = total_energy(tasks, {1,2,4}, 0.5);
-        std::cout << "\nINITIAL SCHEDULING RESULTS:\n";
-        std::cout << "----------------\n";
-        std::cout << "INITIAL SCHEDULING APPLICATION COMPLETION TIME: " << T_final << "\n";
-        std::cout << "INITIAL APPLICATION ENERGY CONSUMPTION: " << E_total << "\n";
-        std::cout << "INITIAL TASK SCHEDULE:\n";
+        cout << "\nINITIAL SCHEDULING RESULTS:\n";
+        cout << "----------------\n";
+        cout << "INITIAL SCHEDULING APPLICATION COMPLETION TIME: " << T_final << "\n";
+        cout << "INITIAL APPLICATION ENERGY CONSUMPTION: " << E_total << "\n";
+        cout << "INITIAL TASK SCHEDULE:\n";
         print_schedule_tasks(tasks);
         print_schedule_validation_report(tasks);
         print_schedule_sequences(sequence);
 
-        std::cout << "\n\n----------------------------------------\n\n";
+        cout << "\n\n----------------------------------------\n\n";
 
         // Step 3: Energy Optimization Phase/ Kernel Scheduling
         auto [tasks2, sequence2] = optimize_task_scheduling(tasks, sequence, T_final, {1,2,4}, 0.5);
@@ -1746,12 +1747,12 @@ int main() {
         // Step 4: Evaluate Final Scheduling Results
         int T_final_after = total_time(tasks2);
         double E_final = total_energy(tasks2, {1,2,4}, 0.5);
-        std::cout << "FINAL SCHEDULING RESULTS:\n";
-        std::cout << "--------------\n";
-        std::cout << "MAXIMUM APPLICATION COMPLETION TIME: " << T_final*1.5 << "\n";
-        std::cout << "FINAL SCHEDULING APPLICATION COMPLETION TIME: " << T_final_after << "\n";
-        std::cout << "FINAL APPLICATION ENERGY CONSUMPTION: " << E_final << "\n";
-        std::cout << "FINAL TASK SCHEDULE:\n";
+        cout << "FINAL SCHEDULING RESULTS:\n";
+        cout << "--------------\n";
+        cout << "MAXIMUM APPLICATION COMPLETION TIME: " << T_final*1.5 << "\n";
+        cout << "FINAL SCHEDULING APPLICATION COMPLETION TIME: " << T_final_after << "\n";
+        cout << "FINAL APPLICATION ENERGY CONSUMPTION: " << E_final << "\n";
+        cout << "FINAL TASK SCHEDULE:\n";
         print_schedule_tasks(tasks2);
         print_schedule_validation_report(tasks2);
         print_schedule_sequences(sequence2);

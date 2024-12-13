@@ -128,39 +128,29 @@ def task_prioritizing(tasks):
 class InitialTaskScheduler:
     def __init__(self, tasks, num_cores=3):
         self.tasks = tasks
-        self.k = num_cores  # K cores from paper
+        self.k = num_cores
         
-        # Resource timing tracking (Section II.B and II.C)
-        self.core_earliest_ready = [0] * self.k  # When each core becomes available
-        self.ws_ready = 0    # Next available time for RF sending channel
-        self.wr_ready = 0  # Next available time for RF receiving channel
+        self.core_earliest_ready = [0] * self.k
+        self.ws_ready = 0
+        self.wr_ready = 0
         
-        # Sk sequence sets from Section III.B
-        # Tracks task execution sequences for each resource (cores + cloud)
         self.sequences = [[] for _ in range(self.k + 1)]
         
     def get_priority_ordered_tasks(self):
         task_priority_list = [(task.priority_score, task.id) for task in self.tasks]
-        task_priority_list.sort(reverse=True)  # Higher priority first
+        task_priority_list.sort(reverse=True)
         return [item[1] for item in task_priority_list]
         
     def classify_entry_tasks(self, priority_order):
         entry_tasks = []
         non_entry_tasks = []
 
-        # Process tasks in priority order (from equation 15)
-        # This ensures high-priority tasks are scheduled first
         for id in priority_order:
             task = self.tasks[id - 1]
             
-            # Check if task has predecessors (pred(vi) from paper)
             if not task.pred_tasks:
-                # Entry tasks have no predecessors and can start immediately
-                # These correspond to v1 in Figure 1 of the paper
                 entry_tasks.append(task)
             else:
-                # Non-entry tasks must wait for predecessors to complete
-                # Their ready times (RT) will be calculated based on predecessor finish times
                 non_entry_tasks.append(task)
                 
         return entry_tasks, non_entry_tasks
@@ -205,146 +195,66 @@ class InitialTaskScheduler:
         return send_ready, send_finish, cloud_ready, cloud_finish, receive_ready, receive_finish
 
     def schedule_on_cloud(self, task, send_ready, send_finish, cloud_ready, cloud_finish, receive_ready, receive_finish):
-        # Set timing parameters for three-phase cloud execution
-        # Phase 1: RF Sending Phase
-        task.RT_ws = send_ready  # When we can start sending (eq. 4)
-        task.FT_ws = send_finish # When sending completes (eq. 1)
-
-        # Phase 2: Cloud Computing Phase
-        task.RT_c = cloud_ready  # When cloud can start (eq. 5)
-        task.FT_c = cloud_finish # When cloud computation ends
-
-        # Phase 3: RF Receiving Phase
-        task.RT_wr = receive_ready   # When results are ready (eq. 6)
-        task.FT_wr = receive_finish  # When results are received
-
-        # Set overall execution finish time for precedence checking
+        task.RT_ws = send_ready
+        task.FT_ws = send_finish
+        task.RT_c = cloud_ready
+        task.FT_c = cloud_finish
+        task.RT_wr = receive_ready
+        task.FT_wr = receive_finish
         task.execution_finish_time = receive_finish
-
-        # Clear local core finish time since executing on cloud
-        # FTi^l = 0 indicates cloud execution as per Section II.C
         task.FT_l = 0
-
-        # Initialize execution unit timing array
-        # -1 indicates not scheduled on that unit
         task.execution_unit_task_start_times = [-1] * (self.k + 1)
-
-        # Record cloud execution start time
-        # Used for Sk sequence tracking in Section III.B
         task.execution_unit_task_start_times[self.k] = send_ready
-
-        # Set task assignment (ki = 0 for cloud execution)
-        # As specified in Section II.B
         task.assignment = self.k
-
-        # Mark task as scheduled in initial phase
         task.is_scheduled = SchedulingState.SCHEDULED
-
-        # Update wireless channel availability
-        # Cannot send new task until current send completes
         self.ws_ready = send_finish
-        # Cannot receive new results until current receive completes
         self.wr_ready = receive_finish
-
-        # Add to cloud execution sequence
-        # Maintains Sk sequences for task migration phase
         self.sequences[self.k].append(task.id)
 
     def schedule_entry_tasks(self, entry_tasks):
-        # Track tasks marked for cloud execution
-        # These are scheduled after local tasks to enable pipeline staggering
         cloud_entry_tasks = []
-
-        # First Phase: Schedule tasks assigned to local cores
-        # Process local tasks first since they don't have sending dependencies
         for task in entry_tasks:
             if task.is_core_task:
-                # Find optimal core assignment using criteria from Section III.A.3
-                # Returns core k that minimizes finish time FTi^l
                 core, start_time, finish_time = self.identify_optimal_local_core(task)
-                
-                # Schedule on chosen core
-                # Updates task timing and core availability
                 self.schedule_on_local_core(task, core, start_time, finish_time)
             else:
-                # Collect cloud tasks for second phase
                 cloud_entry_tasks.append(task)
 
-        # Second Phase: Schedule cloud tasks
-        # Process after local tasks to manage wireless channel congestion
         for task in cloud_entry_tasks:
-            # Set wireless send ready time RTi^ws
-            # Uses current wireless channel availability
             task.RT_ws = self.ws_ready
-            
-            # Calculate timing for three-phase cloud execution
-            # Returns timing parameters for send, compute, and receive phases
             timing = self.calculate_cloud_phases_timing(task)
-            
-            # Schedule cloud execution
-            # Updates task timing and wireless channel availability
             self.schedule_on_cloud(task, *timing)
 
     def calculate_non_entry_task_ready_times(self, task):
-        # Calculate local core ready time RTi^l (equation 3)
-        # RTi^l = max(vj∈pred(vi)) max(FTj^l, FTj^wr)
-        # Task can start on local core when all predecessors are complete:
-        # - FTj^l: If predecessor executed locally
-        # - FTj^wr: If predecessor executed on cloud
         task.RT_l = max(
             max(max(pred_task.FT_l, pred_task.FT_wr) 
                 for pred_task in task.pred_tasks),
-            0  # Ensure non-negative ready time
         )
 
-        # Calculate cloud sending ready time RTi^ws (equation 4)
-        # RTi^ws = max(vj∈pred(vi)) max(FTj^l, FTj^ws)
-        # Can start sending to cloud when:
-        # 1. All predecessors have completed:
-        #    - FTj^l: If predecessor executed locally
-        #    - FTj^ws: If predecessor was sent to cloud
-        # 2. Wireless sending channel is available
         task.RT_ws = max(
             max(max(pred_task.FT_l, pred_task.FT_ws) 
                 for pred_task in task.pred_tasks),
-            self.ws_ready  # Channel availability
+            self.ws_ready
         )
 
     def schedule_non_entry_tasks(self, non_entry_tasks):
-        # Process tasks in priority order (from task_prioritizing)
         for task in non_entry_tasks:
-            # Calculate RTi^l and RTi^ws based on predecessor finish times
-            # Implements equations (3) and (4)
             self.calculate_non_entry_task_ready_times(task)
             
-            # If task was marked for cloud in primary assignment
             if not task.is_core_task:
-                # Calculate three-phase cloud execution timing
                 timing = self.calculate_cloud_phases_timing(task)
-                # Schedule task on cloud
                 self.schedule_on_cloud(task, *timing)
             else:
-                # For tasks marked for local execution:
-                # 1. Find best local core option
                 core, start_time, finish_time = self.identify_optimal_local_core(
-                    task, task.RT_l  # Consider ready time RTi^l
+                    task, task.RT_l
                 )
                 
-                # 2. Calculate cloud execution option for comparison
-                # "schedule task vi on the core or offload it to the cloud 
-                # such that the finish time is minimized"
                 timing = self.calculate_cloud_phases_timing(task)
-                cloud_finish_time = timing[-1]  # FTi^wr
+                cloud_finish_time = timing[-1]
                 
-                # 3. Choose execution path with earlier finish time
-                # This implements the minimum finish time criteria
-                # from Section III.A.3
                 if finish_time <= cloud_finish_time:
-                    # Local execution is faster
                     self.schedule_on_local_core(task, core, start_time, finish_time)
                 else:
-                    # Cloud execution is faster
-                    # Override primary assignment decision
                     task.is_core_task = False
                     self.schedule_on_cloud(task, *timing)
 
@@ -446,61 +356,23 @@ class KernelScheduler:
             task.RT_ws = max(pred_task_completion_times)
 
         task.execution_unit_task_start_times = [-1] * 4
-        task.execution_unit_task_start_times[3] = max(
-            self.cloud_phases_ready_times[0],  # Channel availability
-            task.RT_ws                         # Task ready time
-        )
-
-        task.FT_ws = (
-            task.execution_unit_task_start_times[3] + 
-            task.cloud_execution_times[0]  # Ti^s
-        )
-        # Update sending channel availability
+        task.execution_unit_task_start_times[3] = max(self.cloud_phases_ready_times[0],task.RT_ws)
+        task.FT_ws = (task.execution_unit_task_start_times[3] + task.cloud_execution_times[0])
         self.cloud_phases_ready_times[0] = task.FT_ws
-
-        # Phase 2: Cloud Computing Phase
-        # Implement equation (5): RTi^c calculation
-        task.RT_c = max(
-            task.FT_ws,  # Must finish sending
-            max((pred_task.FT_c for pred_task in task.pred_tasks), default=0)
-        )
-        # Calculate cloud finish time FTi^c
-        task.FT_c = (
-            max(self.cloud_phases_ready_times[1], task.RT_c) + 
-            task.cloud_execution_times[1]  # Ti^c
-        )
-        # Update cloud availability
+        task.RT_c = max(task.FT_ws, max((pred_task.FT_c for pred_task in task.pred_tasks), default=0))
+        task.FT_c = (max(self.cloud_phases_ready_times[1], task.RT_c) + task.cloud_execution_times[1])
         self.cloud_phases_ready_times[1] = task.FT_c
-
-        # Phase 3: RF Receiving Phase
-        # Implement equation (6): RTi^wr = FTi^c
         task.RT_wr = task.FT_c
-        # Calculate receiving finish time using equation (2)
-        task.FT_wr = (
-            max(self.cloud_phases_ready_times[2], task.RT_wr) + 
-            task.cloud_execution_times[2]  # Ti^r
-        )
-        # Update receiving channel availability
+        task.FT_wr = (max(self.cloud_phases_ready_times[2], task.RT_wr) + task.cloud_execution_times[2])
         self.cloud_phases_ready_times[2] = task.FT_wr
-
-        # Clear local execution timing
-        # FTi^l = 0 for cloud tasks as per Section II.C
         task.FT_l = -1
     
     def initialize_queue(self):
-        # Create LIFO stack (implemented as deque)
-        # A task vi is ready for scheduling when both:
-        # 1. ready1[i] = 0: All predecessors scheduled
-        # 2. ready2[i] = 0: Ready in execution sequence
         return deque(
             task for task in self.tasks 
             if (
-                # Check sequence readiness (ready2[i] = 0)
-                # Task must be first in sequence or after scheduled task
                 self.sequence_ready[task.id - 1] == 0 
                 and
-                # Check dependency readiness (ready1[i] = 0) 
-                # All predecessors must be completely scheduled
                 all(pred_task.is_scheduled == SchedulingState.KERNEL_SCHEDULED 
                     for pred_task in task.pred_tasks)
             )
